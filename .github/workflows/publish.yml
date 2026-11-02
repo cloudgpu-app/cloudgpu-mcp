@@ -9,7 +9,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # required for npm provenance
+  id-token: write # required for npm provenance and MCP Registry GitHub OIDC login
 
 jobs:
   publish:
@@ -26,6 +26,36 @@ jobs:
         if: github.event_name == 'push'
         run: |
           test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
-      - run: npm publish --access public --provenance
+      - name: Check whether this version is already on npm
+        id: npmcheck
+        run: |
+          V=$(node -p "require('./package.json').version")
+          if npm view "cloudgpu-mcp@$V" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Publish to npm
+        if: steps.npmcheck.outputs.published != 'true'
+        run: npm publish --access public --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Wait for npm version to be visible
+        run: |
+          V=$(node -p "require('./package.json').version")
+          for i in $(seq 1 30); do
+            npm view "cloudgpu-mcp@$V" version >/dev/null 2>&1 && exit 0
+            echo "waiting for cloudgpu-mcp@$V ($i/30)"; sleep 10
+          done
+          echo "npm version not visible" >&2; exit 1
+
+      - name: Publish to MCP Registry
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          for i in 1 2 3 4 5; do
+            ./mcp-publisher publish && exit 0
+            echo "publish attempt $i failed, retrying"; sleep 15
+          done
+          exit 1
