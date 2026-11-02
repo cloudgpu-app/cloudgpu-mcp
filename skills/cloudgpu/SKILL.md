@@ -44,6 +44,16 @@ Follow these steps whenever you rent or use a GPU on CloudGPU (cloudgpu.app) thr
 
 If anything goes wrong mid-way, do not leave the instance running. Download whatever exists, stop the instance, then explain what happened.
 
+## Balance and top-ups
+
+- If `get_account` or `estimate_cost` shows the balance would not cover the quoted job, do not call `create_instance`. Tell the user how much is missing and ask them to top up at https://cloudgpu.app/billing (card or USDT). When they say it is done, call `estimate_cost` again before renting.
+- `create_instance` also checks the balance. If it is below the estimate or budget plus 10%, the MCP server does not rent anything and returns an error that starts with `Not rented: balance $... is below $...` and points to https://cloudgpu.app/billing. If the CloudGPU API itself rejects the request with HTTP status 402, the error reads `CloudGPU API error 402 <code>: <message>` followed by the same billing link. Handle both the same way as above: stop, tell the user how much is missing, and do not retry.
+- Never top up, enter card details or move money on the user's behalf. The user does that themselves on the billing page.
+
+## Checking prices without the MCP server
+
+If the `cloudgpu` tools are not available, read current prices from https://cloudgpu.app/gpu-prices.json (machine-readable, with an `updated_at` field) or https://cloudgpu.app/pricing. Check `updated_at` and tell the user how fresh the data is. Do not quote prices from memory.
+
 ## Only need a model, not a GPU?
 
 The same API key works for CloudGPU's model API at `https://cloudgpu.app/v1`. Call `list_models` to see the models. If you only need inference on a hosted model, use the API instead of renting a GPU.
