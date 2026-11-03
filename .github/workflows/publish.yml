@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - "v*"
+    # 2026-11-03：合并进 main 且 package.json 里的版本号变了就自动发（会话推不了 tag、也点不了 Run workflow）。
+    # 下面会先查 npm 上有没有这个版本，有就整条跳过，所以别的改动合进 main 不会重复发。
+    branches:
+      - main
+    paths:
+      - package.json
+      - .github/workflows/publish.yml
   # manual run: publishes the version in package.json from the chosen branch
   workflow_dispatch:
 
@@ -23,7 +30,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Check tag matches package.json version
-        if: github.event_name == 'push'
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/')
         run: |
           test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
       - name: Check whether this version is already on npm
@@ -42,6 +49,7 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Wait for npm version to be visible
+        if: steps.npmcheck.outputs.published != 'true'
         run: |
           V=$(node -p "require('./package.json').version")
           for i in $(seq 1 30); do
@@ -51,6 +59,7 @@ jobs:
           echo "npm version not visible" >&2; exit 1
 
       - name: Publish to MCP Registry
+        if: steps.npmcheck.outputs.published != 'true'
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           ./mcp-publisher login github-oidc
