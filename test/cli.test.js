@@ -138,6 +138,20 @@ test("buildCreateBody: maps flags to the API body and validates them", () => {
   }
 });
 
+test("buildCreateBody: --setup reads the script file and enforces the limit", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgpu-setup-"));
+  const ok = path.join(dir, "ok.sh");
+  fs.writeFileSync(ok, "pip install vllm\r\n");
+  assert.equal(buildCreateBody({ gpu: "x", setup: ok }).setup_script, "pip install vllm");
+  const big = path.join(dir, "big.sh");
+  fs.writeFileSync(big, "x".repeat(16385));
+  assert.throws(() => buildCreateBody({ gpu: "x", setup: big }), UsageError);
+  const empty = path.join(dir, "empty.sh");
+  fs.writeFileSync(empty, "  \n");
+  assert.throws(() => buildCreateBody({ gpu: "x", setup: empty }), UsageError);
+  assert.throws(() => buildCreateBody({ gpu: "x", setup: path.join(dir, "missing.sh") }), UsageError);
+});
+
 test("usage errors exit 2 before any network call", async () => {
   const r = await cli(["up", "--gpu", "RTX 4090", "--idle-minutes", "5"]);
   assert.equal(r.code, 2);

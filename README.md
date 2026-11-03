@@ -182,7 +182,7 @@ cloudgpu down <id>               # destroys it and stops billing (asks first; --
 | `login` | Save an API key (input hidden, or piped on stdin); checked against the API first |
 | `offers [--template ID]` | GPU models, VRAM, live price per GPU-hour, availability |
 | `templates` | Ready-made images and the GPU each recommends |
-| `up --gpu MODEL [--template ID] [--count N] [--max-minutes N] [--max-spend USD] [--idle-minutes N] [--wait]` | Rent an instance; `--wait` polls until it is running or failed, then prints the SSH command and URL |
+| `up --gpu MODEL [--template ID] [--count N] [--max-minutes N] [--max-spend USD] [--idle-minutes N] [--setup FILE] [--wait]` | Rent an instance; `--setup` runs a bash script once as root after hand-over (log in `/root/cloudgpu-setup.log`); `--wait` polls until it is running or failed, then prints the SSH command and URL |
 | `ls` / `status <id>` | Instances with status, minutes run and cost so far |
 | `ssh <id> [-- ARGS]` | Run `ssh` with the instance's host, port and user; `--show-password` prints the password if there is one |
 | `down <id> [--yes]` | Destroy the instance; its disk is erased, so download results first |

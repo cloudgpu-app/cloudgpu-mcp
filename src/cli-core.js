@@ -66,7 +66,7 @@ const COMMANDS = {
   up: {
     summary: "Rent a GPU instance",
     usage:
-      'cloudgpu up --gpu "RTX 4090" [--template <id>] [--count N] [--max-minutes N] [--max-spend USD] [--idle-minutes N] [--wait] [--json]',
+      'cloudgpu up --gpu "RTX 4090" [--template <id>] [--count N] [--max-minutes N] [--max-spend USD] [--idle-minutes N] [--setup FILE] [--wait] [--json]',
     details: [
       "--gpu <model>        GPU model as `cloudgpu offers` lists it (required)",
       "--template <id>      template id from `cloudgpu templates`; omit for a plain GPU with Python and CUDA",
@@ -74,6 +74,8 @@ const COMMANDS = {
       "--max-minutes N      destroy the instance N minutes after it starts (enforced by the server)",
       "--max-spend USD      destroy the instance before it costs more than this (enforced by the server)",
       "--idle-minutes N     destroy after the GPU is idle this long; 0 = off, otherwise 10-1440",
+      "--setup FILE         bash script run once as root after the instance is handed over (up to 16 KB);",
+      "                     output in /root/cloudgpu-setup.log on the instance",
       "--wait               poll until the instance is running or failed, then print SSH and URLs",
       "--show-password      with --wait, also print the SSH password if the API returns one",
       "Costs money: billing is per minute from your prepaid balance until the instance is destroyed.",
@@ -87,6 +89,7 @@ const COMMANDS = {
       "max-minutes": { type: "string" },
       "max-spend": { type: "string" },
       "idle-minutes": { type: "string" },
+      setup: { type: "string" },
       wait: { type: "boolean" },
     },
     args: [],
@@ -209,6 +212,8 @@ function intOpt(values, name, min, max) {
   return Number(v);
 }
 
+export const SETUP_MAX_CHARS = 16384;
+
 /** 把 up 的选项变成 POST /v1/gpu/instances 的请求体（gpu_model 稍后用 offers 校正大小写）。 */
 export function buildCreateBody(values) {
   if (!values.gpu || !values.gpu.trim()) throw new UsageError('--gpu is required, e.g. --gpu "RTX 4090" (see `cloudgpu offers`)', "up");
@@ -227,6 +232,19 @@ export function buildCreateBody(values) {
   if (idle !== undefined) {
     if (idle > 0 && idle < 10) throw new UsageError("--idle-minutes must be 0 (off) or from 10 to 1440", "up");
     body.idle_minutes = idle;
+  }
+  if (values.setup !== undefined) {
+    // 启动脚本从文件读，服务器上限 16 KB（按字符算），这里先挡一道
+    let script;
+    try {
+      script = fs.readFileSync(values.setup, "utf8");
+    } catch (e) {
+      throw new UsageError(`--setup: cannot read ${values.setup} (${e.code || e.message})`, "up");
+    }
+    script = script.replace(/\r\n/g, "\n").trim();
+    if (!script) throw new UsageError(`--setup: ${values.setup} is empty`, "up");
+    if (script.length > SETUP_MAX_CHARS) throw new UsageError(`--setup: script is ${script.length} characters; the limit is ${SETUP_MAX_CHARS}`, "up");
+    body.setup_script = script;
   }
   return body;
 }

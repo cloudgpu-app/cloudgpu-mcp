@@ -27,7 +27,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.2.0";
+const VERSION = "0.3.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -283,7 +283,8 @@ if (!cfg.readOnly) {
       description:
         "Rents the GPU from a quote. Costs money. Requires a quote_id from estimate_cost that the user has approved. " +
         "max_spend_usd and max_hours are enforced by CloudGPU's servers: the instance is destroyed when either is reached, even if this assistant has disconnected. " +
-        "idle_minutes destroys it after the GPU sits idle that long (installing packages and downloading data count as idle, so allow for setup).",
+        "idle_minutes destroys it after the GPU sits idle that long (installing packages and downloading data count as idle, so allow for setup). " +
+        "setup_script (optional bash) runs once as root after the instance is handed over; its output is in /root/cloudgpu-setup.log.",
       inputSchema: {
         quote_id: z.string(),
         user_confirmed: z.boolean().describe("true only if the user explicitly approved this quote in the conversation"),
@@ -296,10 +297,15 @@ if (!cfg.readOnly) {
           .max(1440)
           .default(60)
           .describe("Destroy after the GPU has been idle this long; 0 turns it off; otherwise at least 10"),
+        setup_script: z
+          .string()
+          .max(16384)
+          .optional()
+          .describe("Optional bash script run once as root in the background after the instance is handed over; output in /root/cloudgpu-setup.log"),
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true },
     },
-    wrap(async ({ quote_id, user_confirmed, max_spend_usd, max_hours, idle_minutes = 60 }) => {
+    wrap(async ({ quote_id, user_confirmed, max_spend_usd, max_hours, idle_minutes = 60, setup_script }) => {
       if (user_confirmed !== true) {
         return fail("Not rented: show the quote to the user and wait for an explicit yes, then call again with user_confirmed=true.");
       }
@@ -330,6 +336,7 @@ if (!cfg.readOnly) {
         idle_minutes,
       };
       if (quote.template) body.template = quote.template;
+      if (setup_script && setup_script.trim()) body.setup_script = setup_script;
       const inst = await api.create(body);
       track(inst.id);
       return ok({
