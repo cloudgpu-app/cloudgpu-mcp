@@ -164,6 +164,32 @@ The server wraps CloudGPU's public REST API, which any agent or script can call 
 curl https://cloudgpu.app/v1/gpu/offers -H "Authorization: Bearer $CLOUDGPU_API_KEY"
 ```
 
+## Command-line tool
+
+The package also installs a `cloudgpu` command for using the same API from a terminal (Node.js 18.3 or newer, no extra dependencies):
+
+```bash
+npm install -g cloudgpu-mcp      # or run it once with: npx -p cloudgpu-mcp cloudgpu --help
+cloudgpu login                   # saves your key to ~/.config/cloudgpu/config.json (mode 0600)
+cloudgpu offers                  # GPU models with live price and availability
+cloudgpu up --gpu "RTX 4090" --template comfyui --max-minutes 120 --max-spend 5 --wait
+cloudgpu ssh <id>                # opens your system ssh to the instance
+cloudgpu down <id>               # destroys it and stops billing (asks first; --yes to skip)
+```
+
+| Command | What it does |
+|---|---|
+| `login` | Save an API key (input hidden, or piped on stdin); checked against the API first |
+| `offers [--template ID]` | GPU models, VRAM, live price per GPU-hour, availability |
+| `templates` | Ready-made images and the GPU each recommends |
+| `up --gpu MODEL [--template ID] [--count N] [--max-minutes N] [--max-spend USD] [--idle-minutes N] [--wait]` | Rent an instance; `--wait` polls until it is running or failed, then prints the SSH command and URL |
+| `ls` / `status <id>` | Instances with status, minutes run and cost so far |
+| `ssh <id> [-- ARGS]` | Run `ssh` with the instance's host, port and user; `--show-password` prints the password if there is one |
+| `down <id> [--yes]` | Destroy the instance; its disk is erased, so download results first |
+| `balance` | Balance and how many instances the account may run |
+
+`CLOUDGPU_API_KEY` takes precedence over the saved key, and `CLOUDGPU_BASE_URL` overrides the API host. Read commands accept `--json`; SSH passwords are left out of JSON unless you pass `--show-password`. Every command has `--help`. Errors print the API's message and exit non-zero (2 for usage errors).
+
 ## Links
 
 - MCP docs: https://cloudgpu.app/docs/mcp
@@ -179,6 +205,7 @@ CloudGPU here means cloudgpu.app. Prepaid balance, billed per minute; when the b
 npm install
 npm test
 node src/index.js   # stdio server; set CLOUDGPU_API_KEY first
+node src/cli.js --help
 ```
 
 ## License

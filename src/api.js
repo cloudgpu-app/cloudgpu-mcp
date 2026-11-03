@@ -10,10 +10,12 @@ export class ApiError extends Error {
 }
 
 export class CloudGpuApi {
-  constructor({ apiKey, baseUrl = "https://cloudgpu.app", fetchImpl = globalThis.fetch } = {}) {
+  constructor({ apiKey, baseUrl = "https://cloudgpu.app", fetchImpl = globalThis.fetch, userAgent = "cloudgpu-mcp/0.1" } = {}) {
     this.apiKey = apiKey;
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.fetch = fetchImpl;
+    // 命令行工具和 MCP 服务器共用这个客户端，用 User-Agent 区分来源
+    this.userAgent = userAgent;
   }
 
   async request(method, path, body) {
@@ -34,7 +36,7 @@ export class CloudGpuApi {
           headers: {
             Authorization: `Bearer ${this.apiKey}`,
             "Content-Type": "application/json",
-            "User-Agent": "cloudgpu-mcp/0.1",
+            "User-Agent": this.userAgent,
           },
           body: body === undefined ? undefined : JSON.stringify(body),
         });
