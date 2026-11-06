@@ -18,8 +18,11 @@ export class CloudGpuApi {
     this.userAgent = userAgent;
   }
 
-  async request(method, path, body) {
-    if (!this.apiKey) {
+  // opts.idempotencyKey: sent as Idempotency-Key; such a POST is safe to retry because the server returns the
+  //   same job for the same key instead of starting a second GPU.
+  // opts.noAuth: endpoints used before there is a key (agent connect).
+  async request(method, path, body, opts = {}) {
+    if (!this.apiKey && !opts.noAuth) {
       throw new ApiError(
         401,
         "missing_api_key",
@@ -27,14 +30,17 @@ export class CloudGpuApi {
       );
     }
     let lastErr;
-    // Retry only on network errors and 502/503/504; never on 4xx (a create must not run twice).
-    const attempts = method === "GET" ? 3 : 1;
+    // Retry only on network errors and 502/503/504; never on 4xx. A POST is retried only when it carries an
+    // Idempotency-Key, because only then can it not start a second GPU.
+    const retryable = method === "GET" || Boolean(opts.idempotencyKey);
+    const attempts = retryable ? 3 : 1;
     for (let i = 0; i < attempts; i++) {
       try {
         const res = await this.fetch(this.baseUrl + path, {
           method,
           headers: {
-            Authorization: `Bearer ${this.apiKey}`,
+            ...(this.apiKey && !opts.noAuth ? { Authorization: `Bearer ${this.apiKey}` } : {}),
+            ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
             "Content-Type": "application/json",
             "User-Agent": this.userAgent,
           },
@@ -50,7 +56,7 @@ export class CloudGpuApi {
         if (!res.ok) {
           const e = json && json.error ? json.error : {};
           const err = new ApiError(res.status, e.code || `http_${res.status}`, e.message || `HTTP ${res.status}`);
-          if (method === "GET" && res.status >= 502 && res.status <= 504 && i < attempts - 1) {
+          if (retryable && res.status >= 502 && res.status <= 504 && i < attempts - 1) {
             lastErr = err;
             await sleep(1000 * (i + 1));
             continue;
@@ -93,6 +99,35 @@ export class CloudGpuApi {
   }
   models() {
     return this.request("GET", "/v1/models").then((r) => r.data || []);
+  }
+
+  // ── jobs: start a GPU, run one command, destroy the GPU (server-side) ──
+  createJob(body, idempotencyKey) {
+    if (!idempotencyKey) throw new Error("createJob needs an idempotency key");
+    return this.request("POST", "/v1/jobs", body, { idempotencyKey });
+  }
+  job(id) {
+    return this.request("GET", `/v1/jobs/${encodeURIComponent(id)}`);
+  }
+  jobs(limit = 20) {
+    return this.request("GET", `/v1/jobs?limit=${encodeURIComponent(limit)}`).then((r) => r.data || []);
+  }
+  jobLogs(id) {
+    return this.request("GET", `/v1/jobs/${encodeURIComponent(id)}/logs`);
+  }
+  jobEvents(id) {
+    return this.request("GET", `/v1/jobs/${encodeURIComponent(id)}/events`).then((r) => r.data || []);
+  }
+  cancelJob(id) {
+    return this.request("POST", `/v1/jobs/${encodeURIComponent(id)}/cancel`, {});
+  }
+
+  // ── agent connect: get a key with a budget, approved by the account owner in the browser ──
+  connectStart(body) {
+    return this.request("POST", "/v1/agent/connect", body, { noAuth: true });
+  }
+  connectToken(deviceCode) {
+    return this.request("POST", "/v1/agent/connect/token", { device_code: deviceCode }, { noAuth: true });
   }
 }
 

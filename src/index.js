@@ -16,6 +16,8 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { CloudGpuApi, ApiError } from "./api.js";
 import { SshPool, exec, upload, download, writeFile } from "./ssh.js";
+import { loadStoredKey, saveStoredKey } from "./credentials.js";
+import crypto from "node:crypto";
 import {
   checkCommand,
   sensitiveReason,
@@ -27,12 +29,14 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.3.0";
+const VERSION = "0.4.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
+// A key from connect_account (saved on this computer) is used when CLOUDGPU_API_KEY is not set.
+const stored = loadStoredKey();
 const cfg = {
-  apiKey: (process.env.CLOUDGPU_API_KEY || "").trim(),
+  apiKey: (process.env.CLOUDGPU_API_KEY || "").trim() || (stored ? stored.api_key : ""),
   baseUrl: process.env.CLOUDGPU_BASE_URL || "https://cloudgpu.app",
   maxSpend: num(process.env.CLOUDGPU_MAX_SPEND_USD, 50),
   maxHours: num(process.env.CLOUDGPU_MAX_HOURS, 24),
@@ -53,6 +57,8 @@ const session = new Map();
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) rents GPUs billed per minute from a prepaid balance.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
 Rules: never rent without the user's yes on a quote; always set a budget and time limit (the platform shuts the instance down when either is hit); download results before stop_instance because destroying an instance erases its disk; never change passwords, SSH config, the firewall or the platform's monitoring agent on the instance; if anything fails, download what exists and stop the instance rather than leaving it running.
+Jobs: for a batch task (one command that writes its results somewhere), run_job does the whole thing on CloudGPU's servers: start a GPU, run the command, destroy the GPU, with the same per-job budget and time limit. Check it with get_job. The GPU's disk is erased when the job ends, so the command must upload its results itself (for example to the user's own S3 bucket) or print them; get_job returns the last ~4 KB of output.
+No API key yet? connect_account gives the user a link to approve this assistant with a spending limit; then finish_connect stores the key on this computer.
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
@@ -248,6 +254,118 @@ server.registerTool(
   }),
 );
 
+// ── connect (get a key with a budget, approved in the browser) ──────────────
+
+let pendingConnect = null;
+
+server.registerTool(
+  "connect_account",
+  {
+    title: "Connect this assistant to a CloudGPU account",
+    description:
+      "Use when there is no API key. Starts an approval request and returns a link. The user opens it, signs in to cloudgpu.app and approves this assistant " +
+      "with a spending limit and a maximum number of GPUs at once; CloudGPU's servers enforce both. Then call finish_connect. No money is spent.",
+    inputSchema: {
+      agent_name: z.string().min(1).max(64).describe("How the user will recognise this assistant, e.g. 'Claude Code on Yang's laptop'"),
+      spend_limit_usd: z.number().min(1).max(10000).describe("Total this key may ever spend, in USD; ask the user"),
+      max_concurrent: z.number().int().min(1).max(10).default(1).describe("GPUs or jobs this key may run at once"),
+      expires_in_days: z.number().int().min(1).max(90).default(30),
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  wrap(async ({ agent_name, spend_limit_usd, max_concurrent = 1, expires_in_days = 30 }) => {
+    const r = await api.connectStart({ agent_name, spend_limit_usd, max_concurrent, expires_in_days });
+    pendingConnect = { device_code: r.device_code, until: Date.now() + Number(r.expires_in || 600) * 1000, interval: Number(r.interval || 5) };
+    return ok({
+      link: r.verification_uri_complete,
+      code: r.user_code,
+      expires_in_seconds: r.expires_in,
+      next: "Show the link to the user and ask them to open it, sign in and approve. Then call finish_connect.",
+    });
+  }),
+);
+
+server.registerTool(
+  "finish_connect",
+  {
+    title: "Finish connecting",
+    description:
+      "After the user approved the link from connect_account: waits up to about a minute for the approval, then stores the new key on this computer " +
+      "(~/.config/cloudgpu/credentials.json, readable only by the user) and uses it from now on. The key itself is never shown.",
+    inputSchema: {},
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  wrap(async () => {
+    if (!pendingConnect) return fail("No approval is pending. Call connect_account first.");
+    const deadline = Math.min(Date.now() + 60_000, pendingConnect.until);
+    for (;;) {
+      try {
+        const cred = await api.connectToken(pendingConnect.device_code);
+        const file = saveStoredKey({
+          api_key: cred.api_key,
+          key_id: cred.key_id,
+          agent_name: cred.agent_name,
+          spend_limit_usd: cred.spend_limit_usd,
+          max_concurrent: cred.max_concurrent,
+          expires_at: cred.expires_at,
+          base_url: cfg.baseUrl,
+        });
+        cfg.apiKey = cred.api_key;
+        api.apiKey = cred.api_key;
+        pendingConnect = null;
+        return ok({
+          connected: true,
+          agent_name: cred.agent_name,
+          spend_limit_usd: cred.spend_limit_usd,
+          max_concurrent: cred.max_concurrent,
+          expires_at: cred.expires_at,
+          saved_to: file,
+          note: "The account owner can revoke this key at any time at https://cloudgpu.app/api.",
+        });
+      } catch (err) {
+        if (err instanceof ApiError && err.code === "authorization_pending" && Date.now() + pendingConnect.interval * 1000 < deadline) {
+          await new Promise((r) => setTimeout(r, pendingConnect.interval * 1000));
+          continue;
+        }
+        if (err instanceof ApiError && err.code === "authorization_pending") {
+          return fail("Not approved yet. Ask the user to open the link and approve, then call finish_connect again.");
+        }
+        if (err instanceof ApiError && (err.code === "access_denied" || err.code === "expired_token")) pendingConnect = null;
+        throw err;
+      }
+    }
+  }),
+);
+
+// ── jobs (read) ───────────────────────────────────────────────────────────
+
+server.registerTool(
+  "get_job",
+  {
+    title: "Job status",
+    description:
+      "Status of a job (queued / provisioning / running / stopping / succeeded / failed / cancelled / needs_attention), exit code, cost so far, " +
+      "the last ~4 KB of the command's output and the job's event history.",
+    inputSchema: { job_id: z.string() },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  wrap(async ({ job_id }) => {
+    const [job, logs, events] = await Promise.all([api.job(job_id), api.jobLogs(job_id).catch(() => null), api.jobEvents(job_id).catch(() => [])]);
+    return ok({ ...job, output_tail: logs ? logs.tail : null, events });
+  }),
+);
+
+server.registerTool(
+  "list_jobs",
+  {
+    title: "List jobs",
+    description: "Recent jobs on this account with status and cost.",
+    inputSchema: { limit: z.number().int().min(1).max(100).default(20) },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  wrap(async ({ limit = 20 }) => ok({ jobs: await api.jobs(limit) })),
+);
+
 // ── instances (read) ─────────────────────────────────────────────────────
 
 server.registerTool(
@@ -344,6 +462,66 @@ if (!cfg.readOnly) {
         next: "Call get_status at intervals (not in a tight loop) until status is running, then upload and run_command.",
       });
     }),
+  );
+
+  server.registerTool(
+    "run_job",
+    {
+      title: "Run a job on a GPU",
+      description:
+        "Costs money. CloudGPU starts a GPU, runs one bash command on it, then destroys the GPU, all on its servers, so it finishes even if this assistant disconnects. " +
+        "max_spend_usd and max_hours are enforced by the servers. Retrying with the same idempotency_key never starts a second GPU; this tool generates one if you leave it out and returns it. " +
+        "The disk is erased when the job ends: the command must upload its own results (for example to the user's storage) or print them. " +
+        "Requires the user's explicit yes on the GPU, budget and time limit.",
+      inputSchema: {
+        command: z.string().min(1).max(32768).describe("bash command or script to run on the GPU"),
+        gpu_model: z.string().optional().describe("GPU model exactly as list_gpus returns it"),
+        template: z.string().optional().describe("Template id from list_templates"),
+        gpu_count: z.number().int().min(1).max(8).default(1),
+        disk_gb: z.number().int().optional().describe("Larger system disk: 100, 200 or 500; omit for the standard disk"),
+        max_spend_usd: z.number().positive().describe(`Budget for this job in USD (at most ${cfg.maxSpend})`),
+        max_hours: z.number().positive().describe(`Hard time limit in hours (at most ${cfg.maxHours})`),
+        user_confirmed: z.boolean().describe("true only if the user explicitly approved the GPU, budget and time limit"),
+        idempotency_key: z.string().max(128).optional().describe("Reuse the same value when retrying the same job"),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
+      if (user_confirmed !== true) {
+        return fail("Not started: tell the user the GPU, budget and time limit, wait for an explicit yes, then call again with user_confirmed=true.");
+      }
+      if (!gpu_model && !template) return fail("Give gpu_model or template.");
+      if (max_spend_usd > cfg.maxSpend) {
+        return fail(`max_spend_usd ${max_spend_usd} is above this server's cap of ${cfg.maxSpend} (CLOUDGPU_MAX_SPEND_USD).`);
+      }
+      if (max_hours > cfg.maxHours) {
+        return fail(`max_hours ${max_hours} is above this server's cap of ${cfg.maxHours} (CLOUDGPU_MAX_HOURS).`);
+      }
+      const refused = checkCommand(command);
+      if (refused) return fail(refused);
+      const key = idempotency_key || crypto.randomUUID();
+      const body = { command, gpu_count, max_minutes: Math.ceil(max_hours * 60), max_spend_usd };
+      if (gpu_model) body.gpu_model = gpu_model;
+      if (template) body.template = template;
+      if (disk_gb) body.disk_gb = disk_gb;
+      const job = await api.createJob(body, key);
+      return ok({
+        ...job,
+        idempotency_key: key,
+        next: "Call get_job at intervals (every minute or so, not in a tight loop) until status is succeeded, failed or cancelled, then report the cost.",
+      });
+    }),
+  );
+
+  server.registerTool(
+    "cancel_job",
+    {
+      title: "Cancel a job",
+      description: "Stops a job: if a GPU was started it is destroyed and billing stops. Output not yet uploaded by the command is lost.",
+      inputSchema: { job_id: z.string() },
+      annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
+    },
+    wrap(async ({ job_id }) => ok(await api.cancelJob(job_id))),
   );
 
   server.registerTool(
