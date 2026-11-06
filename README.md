@@ -129,6 +129,10 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | `upload` / `download` | Files and folders between your computer and the instance (SFTP) |
 | `stop_instance` | Destroys the instance and stops billing |
 | `list_models` | Models on the OpenAI-compatible API, for inference without renting a GPU |
+| `run_job` | Starts a GPU, runs one command and destroys the GPU, all on CloudGPU's servers; safe to retry with the same `idempotency_key` |
+| `get_job` / `list_jobs` | Job status, exit code, cost, the last ~4 KB of output and the job's history |
+| `cancel_job` | Stops a job and destroys its GPU |
+| `connect_account` / `finish_connect` | Gets a key without copying one: the user approves this assistant in the browser with a spending limit and a number of GPUs at once |
 
 The server also provides a `train_on_cloudgpu` prompt.
 
@@ -140,13 +144,15 @@ The server also provides a `train_on_cloudgpu` prompt.
 - **Results before shutdown.** After commands have run, `stop_instance` refuses until something has been downloaded, unless the user confirms `force=true`.
 - **Secrets stay out of the chat.** The instance's SSH login is used inside this process and never returned to the model. Tool output is scrubbed of the API key and login details. Uploading `.ssh`, `.env`, key files or your whole home directory needs `allow_sensitive=true`.
 - **The instance stays manageable.** Commands that change the root password, SSH configuration, firewall or the platform's monitoring agent are refused. CloudGPU shuts down instances that it can no longer monitor.
+- **Jobs are not started twice.** `run_job` sends an `Idempotency-Key`. Resending the same job returns the same job instead of starting a second GPU, and the server refuses the same key with different parameters.
+- **Keys with a budget.** A key from `connect_account` has a total spending limit, a number of GPUs it may run at once and an expiry date, all enforced by CloudGPU's servers. Revoke it at https://cloudgpu.app/api and it can no longer start anything.
 - **Read-only mode.** `CLOUDGPU_READ_ONLY=1` registers only the look-up tools.
 
 ## Configuration
 
 | Env | Default | |
 |---|---|---|
-| `CLOUDGPU_API_KEY` | (required) | From https://cloudgpu.app/api |
+| `CLOUDGPU_API_KEY` | (or `connect_account`) | From https://cloudgpu.app/api. Without it, a key saved by `finish_connect` in `~/.config/cloudgpu/credentials.json` is used |
 | `CLOUDGPU_MAX_SPEND_USD` | `50` | Highest budget the agent may set for one instance |
 | `CLOUDGPU_MAX_HOURS` | `24` | Longest time limit the agent may set |
 | `CLOUDGPU_READ_ONLY` | off | `1` = look-up tools only |

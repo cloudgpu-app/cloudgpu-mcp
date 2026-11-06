@@ -32,6 +32,19 @@ Copy this file into your project as `AGENTS.md`, `.cursor/rules/cloudgpu.md` or 
 - **Do not** change the root password, edit the SSH configuration, change the firewall, or stop the platform's monitoring agent (`cgpu-*` processes). The platform must keep its access to the instance; if that access is lost, the platform shuts the instance down. The MCP server refuses such commands.
 - Never use the GPU for cryptocurrency mining or anything the [acceptable use policy](https://cloudgpu.app/aup) forbids. Instances that do so are shut down.
 
+## Jobs: one command, start to finish on CloudGPU
+
+For a batch task that is one command (a training script, a render, a batch of inference), `run_job` is simpler than renting an instance: CloudGPU starts the GPU, runs the command, and destroys the GPU when it finishes, even if you disconnect.
+
+- Get the user's yes on the GPU, the budget and the time limit first, as for renting.
+- The GPU's disk is erased when the job ends. The command must upload its results itself (for example to the user's own S3 bucket, with credentials the user gave for that) or print them. `get_job` returns the last ~4 KB of output.
+- If `run_job` times out or the connection drops, call it again with the same `idempotency_key`. You get the same job back; a second GPU is not started.
+- Check progress with `get_job` every minute or so. `needs_attention` means CloudGPU stopped the job to check something by hand; tell the user and do not resubmit it.
+
+## No API key?
+
+Call `connect_account` with a name for yourself and the spending limit the user wants. Show the user the link; they sign in and approve. Then call `finish_connect`. The key is saved on this computer and never shown in the chat. The user can revoke it at https://cloudgpu.app/api.
+
 ## Finishing (always)
 
 1. Download every result: model weights, adapters, checkpoints, logs, metrics. Destroying an instance erases its disk, and CloudGPU has no persistent storage.
