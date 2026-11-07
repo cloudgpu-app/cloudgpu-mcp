@@ -91,3 +91,18 @@ test("run_job and cancel_job are marked destructive; reads are read-only", () =>
   // run_job 必须要用户确认
   assert.match(src.slice(src.indexOf('"run_job"'), src.indexOf('"cancel_job"')), /user_confirmed !== true/);
 });
+
+test("optional storage being disabled does not affect existing account, offers or Jobs REST calls", async () => {
+  const calls=[];
+  const api=new CloudGpuApi({apiKey:'fake-test-key',fetchImpl:fakeFetch([
+    {status:503,body:{error:{code:'storage_not_enabled',message:'disabled'}}},
+    {status:200,body:{balance_usd:1}},
+    {status:200,body:{data:[]}},
+    {status:202,body:{id:'job_mock',status:'queued'}}
+  ],calls)});
+  await assert.rejects(()=>api.request('POST','/v1/files',{name:'file',purpose:'artifact',size_bytes:1}),e=>e.code==='storage_not_enabled');
+  assert.equal((await api.account()).balance_usd,1);
+  await api.offers();
+  assert.equal((await api.createJob({command:'echo',gpu_model:'mock',max_minutes:1,max_spend_usd:0.01},'offline-test')).id,'job_mock');
+  assert.deepEqual(calls.slice(1).map(c=>new URL(c.url).pathname),['/v1/gpu/account','/v1/gpu/offers','/v1/jobs']);
+});

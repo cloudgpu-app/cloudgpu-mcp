@@ -91,3 +91,15 @@ test("empty project marker files can be persisted", async () => {
     assert.equal((await s.upload(local)).status, "ready");
   } finally { await fs.rm(dir, { recursive: true }); }
 });
+
+test("storage disabled returns a clean error without touching object storage", async () => {
+  const tools=new Map();let requests=0;
+  const server={registerTool:(name,spec,run)=>tools.set(name,{spec,run})};
+  const opts={api:{request:async()=>{requests++;throw Error('storage_not_enabled');}},wrap:fn=>async args=>{try{return await fn(args);}catch(e){return {error:e.message};}},ok:x=>x,fail:x=>({error:x}),expandHome:x=>x,readOnly:false};
+  registerStorageTools(server,opts);
+  assert.match((await tools.get('get_storage').run({})).error,/storage_not_enabled/);
+  assert.equal(requests,1);
+  // 版本删除和文件删除都必须先征得用户确认，关闭存储时也不能先请求。
+  assert.match((await tools.get('delete_workspace_version').run({version_id:'wsv_test',user_confirmed:false})).error,/Ask the user/);
+  assert.equal(requests,1);
+});

@@ -164,7 +164,7 @@ The key also works with the OpenAI-compatible API at `https://cloudgpu.app/v1`. 
 
 ## Optional persistent files and Workspaces (development)
 
-These tools require persistent storage to be explicitly enabled on the account;
+These tools require persistent storage to be explicitly enabled on the server;
 they return `storage_not_enabled` until it is ready. Discover server capabilities
 at `/v1/public/compute-capabilities`. No free quota or retention period is promised.
 
@@ -186,7 +186,13 @@ at `/v1/public/compute-capabilities`. No free quota or retention period is promi
 This restores project files into a fresh directory before the Job command. It is
 not full-disk restore and does not automatically save edits or collect outputs.
 Continue saving results from the command itself. Large-model restore speed and
-cross-supplier cache behavior must be measured before relying on them.
+cross-supplier cache behavior must be measured before relying on them. Backend restore plans travel via SSH stdin, never in
+Job command arguments or saved scripts; the user command starts after restoration.
+This does not protect transfer-time memory from root on the GPU. Failed deletions
+or expired uploads may remain pending while the server verifies cleanup; quota is
+released only after confirmed removal. With storage disabled, normal catalog,
+account, instance and Job tools keep working without a storage provider.
+
 
 The developer acceptance script `node scripts/acceptance.mjs` is read-only by
 default. Its `--paid` mode is for an explicitly authorized internal test account
