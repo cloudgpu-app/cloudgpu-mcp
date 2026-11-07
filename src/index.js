@@ -18,6 +18,7 @@ import { CloudGpuApi, ApiError } from "./api.js";
 import { SshPool, exec, upload, download, writeFile } from "./ssh.js";
 import { loadStoredKey, saveStoredKey } from "./credentials.js";
 import crypto from "node:crypto";
+import { registerStorageTools } from "./storage.js";
 import {
   checkCommand,
   sensitiveReason,
@@ -62,6 +63,7 @@ No API key yet? connect_account gives the user a link to approve this assistant 
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
+registerStorageTools(server, { api, wrap, ok, fail, readOnly: cfg.readOnly, expandHome });
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -125,6 +127,20 @@ function cleanOut(s, secrets) {
 }
 
 // ── account and catalogue ────────────────────────────────────────────────
+
+server.registerTool("get_compute_catalog", {
+  title: "Public GPU catalog", description: "GPU catalog, templates and billing without an API key. Does not rent anything.",
+  inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: true },
+}, wrap(async () => ok(await api.catalog())));
+server.registerTool("quote_compute", {
+  title: "Server-side compute quote", description: "Five-minute server quote: separates estimated task cost from required starting balance and marks supports_jobs. No GPU is started. Pass its quote_id to run_job.",
+  inputSchema: { min_vram_gb: z.number().int().min(0).default(0), gpu_model: z.string().optional(), gpu_count: z.number().int().min(1).max(8).default(1),
+    template: z.string().optional(), disk_gb: z.number().int().optional(), estimated_duration_seconds: z.number().int().positive(), max_budget_usd: z.number().positive() },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, wrap(async ({ estimated_duration_seconds, max_budget_usd, ...requirements }) => {
+  const q = await api.quote({ requirements, estimated_duration_seconds, max_budget_usd });
+  return ok({ ...q, quote_id: q.id });
+}));
 
 server.registerTool(
   "get_account",
@@ -479,6 +495,8 @@ if (!cfg.readOnly) {
         template: z.string().optional().describe("Template id from list_templates"),
         gpu_count: z.number().int().min(1).max(8).default(1),
         disk_gb: z.number().int().optional().describe("Larger system disk: 100, 200 or 500; omit for the standard disk"),
+        workspace_version_id: z.string().optional().describe("Immutable Workspace version to restore before the command; requires enabled persistent storage"),
+        quote_id: z.string().optional().describe("Server quote from quote_compute, starting quote_; binds configuration and checks price at submission"),
         max_spend_usd: z.number().positive().describe(`Budget for this job in USD (at most ${cfg.maxSpend})`),
         max_hours: z.number().positive().describe(`Hard time limit in hours (at most ${cfg.maxHours})`),
         user_confirmed: z.boolean().describe("true only if the user explicitly approved the GPU, budget and time limit"),
@@ -486,11 +504,11 @@ if (!cfg.readOnly) {
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
+    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
       if (user_confirmed !== true) {
         return fail("Not started: tell the user the GPU, budget and time limit, wait for an explicit yes, then call again with user_confirmed=true.");
       }
-      if (!gpu_model && !template) return fail("Give gpu_model or template.");
+      if (!gpu_model && !template && !quote_id) return fail("Give gpu_model, template or a server quote_id from quote_compute.");
       if (max_spend_usd > cfg.maxSpend) {
         return fail(`max_spend_usd ${max_spend_usd} is above this server's cap of ${cfg.maxSpend} (CLOUDGPU_MAX_SPEND_USD).`);
       }
@@ -504,6 +522,8 @@ if (!cfg.readOnly) {
       if (gpu_model) body.gpu_model = gpu_model;
       if (template) body.template = template;
       if (disk_gb) body.disk_gb = disk_gb;
+      if (workspace_version_id) body.workspace_version_id = workspace_version_id;
+      if (quote_id) body.quote_id = quote_id;
       const job = await api.createJob(body, key);
       return ok({
         ...job,

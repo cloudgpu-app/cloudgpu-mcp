@@ -162,6 +162,37 @@ The server also provides a `train_on_cloudgpu` prompt.
 
 The key also works with the OpenAI-compatible API at `https://cloudgpu.app/v1`. Call `list_models` (or `GET /v1/models`) to see the available model IDs. Model prices are on [cloudgpu.app/api](https://cloudgpu.app/api).
 
+## Optional persistent files and Workspaces (development)
+
+These tools require persistent storage to be explicitly enabled on the account;
+they return `storage_not_enabled` until it is ready. Discover server capabilities
+at `/v1/public/compute-capabilities`. No free quota or retention period is promised.
+
+- `get_compute_catalog` and `quote_compute` use public discovery and server quotes,
+  including required starting balance and `supports_jobs`. Pass the server quote to
+  `run_job` as `quote_id`; the original `estimate_cost` remains a local quote for
+  interactive instance rentals.
+- `get_storage`, `list_files`, `list_workspaces`, `list_workspace_versions` and
+  `get_workspace_version` show saved files, versions and usage.
+- `upload_artifact` and `download_artifact` transfer persistent files, including
+  datasets/models, without returning storage credentials to the assistant.
+- `save_workspace` saves regular project files as an immutable version. It refuses
+  known credential paths and symlinks, and skips `.git`, `node_modules`,
+  `__pycache__` and `.venv`. Save dependency manifests so the next GPU can rebuild
+  its environment. The returned `workspace_version_id` can be passed to `run_job`.
+- `delete_file` and `delete_workspace_version` require explicit user confirmation
+  and refuse active references.
+
+This restores project files into a fresh directory before the Job command. It is
+not full-disk restore and does not automatically save edits or collect outputs.
+Continue saving results from the command itself. Large-model restore speed and
+cross-supplier cache behavior must be measured before relying on them.
+
+The developer acceptance script `node scripts/acceptance.mjs` is read-only by
+default. Its `--paid` mode is for an explicitly authorized internal test account
+only; it can create two Jobs capped at $0.03 each. Do not run paid mode as part of
+ordinary package tests.
+
 ## Without MCP
 
 The server wraps CloudGPU's public REST API, which any agent or script can call with the same key:
