@@ -9,10 +9,10 @@ import { z } from "zod";
 
 export class PersistentStorage {
   constructor(api, fetchImpl = globalThis.fetch) { this.api = api; this.fetch = fetchImpl; }
-  async upload(local, purpose = "artifact", name = path.basename(local)) {
+  async upload(local, purpose = "artifact", name = path.basename(local), acceptStorageCharges = false) {
     const stat = await fsp.stat(local);
     if (!stat.isFile()) throw new Error("Upload needs a regular file.");
-    const file = await this.api.request("POST", "/v1/files", { name, purpose, size_bytes: stat.size });
+    const file = await this.api.request("POST", "/v1/files", { name, purpose, size_bytes: stat.size, accept_storage_charges: acceptStorageCharges === true });
     try {
       for (let i = 1, offset = 0; i <= file.part_count; i++) {
         const part = await this.api.request("POST", `/v1/files/${file.file_id}/parts/${i}`, {});
@@ -59,7 +59,7 @@ export class PersistentStorage {
       throw new Error("Storage download failed; the partial file was removed.");
     }
   }
-  async saveWorkspace(localDir, name, workspaceId) {
+  async saveWorkspace(localDir, name, workspaceId, acceptStorageCharges = false) {
     const root = path.resolve(localDir), selected = [];
     const walk = async dir => {
       for (const e of await fsp.readdir(dir, { withFileTypes: true })) {
@@ -77,7 +77,7 @@ export class PersistentStorage {
     const created = [], manifest = {};
     try {
       for (const file of selected) {
-        const saved = await this.upload(file.full, "workspace", file.rel);
+        const saved = await this.upload(file.full, "workspace", file.rel, acceptStorageCharges);
         created.push(saved.file_id); manifest[file.rel] = saved.file_id;
       }
       const ws = workspaceId ? { workspace_id: workspaceId } : await this.api.request("POST", "/v1/workspaces", { name });
@@ -105,13 +105,13 @@ export function registerStorageTools(server, { api, wrap, ok, fail, readOnly, ex
 
   server.registerTool("upload_artifact", {
     title: "Save a persistent artifact", description: "Uploads a local regular file in resumable-sized parts. Consumes storage quota; retention and pricing depend on the account policy. Credential files are refused.",
-    inputSchema: { local_path: z.string(), purpose: z.enum(["artifact", "model", "dataset"]).default("artifact") },
+    inputSchema: { local_path: z.string(), purpose: z.enum(["artifact", "model", "dataset"]).default("artifact"), accept_storage_charges: z.boolean().default(false).describe("Read get_storage pricing first. Set true only after the user agrees to paid storage above the included allowance.") },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, wrap(async ({ local_path, purpose = "artifact" }) => {
+  }, wrap(async ({ local_path, purpose = "artifact", accept_storage_charges = false }) => {
     const local = path.resolve(expandHome(local_path));
     if (sensitiveReason(local)) return fail("Credential files cannot be saved as artifacts.");
     if ((await fsp.lstat(local)).isSymbolicLink()) return fail("Choose a regular file, not a symlink.");
-    return ok(await client.upload(local, purpose));
+    return ok(await client.upload(local, purpose, path.basename(local), accept_storage_charges));
   }));
   server.registerTool("download_artifact", {
     title: "Download a persistent file", description: "Streams a persistent file to this computer. Never overwrites an existing local file.",
@@ -119,9 +119,9 @@ export function registerStorageTools(server, { api, wrap, ok, fail, readOnly, ex
   }, wrap(async ({ file_id, local_path }) => ok(await client.download(file_id, path.resolve(expandHome(local_path))))));
   server.registerTool("save_workspace", {
     title: "Save a project Workspace", description: "Saves 1–100 regular project files as an immutable version. Refuses secrets and symlinks; skips .git, node_modules, __pycache__ and .venv. Save dependency manifests, not the operating system. Pass the returned workspace_version_id to run_job.",
-    inputSchema: { local_dir: z.string(), name: z.string().min(1).max(120), workspace_id: z.string().optional() },
+    inputSchema: { local_dir: z.string(), name: z.string().min(1).max(120), workspace_id: z.string().optional(), accept_storage_charges: z.boolean().default(false).describe("Read get_storage pricing and obtain user agreement before enabling paid storage.") },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
-  }, wrap(async ({ local_dir, name, workspace_id }) => ok(await client.saveWorkspace(expandHome(local_dir), name, workspace_id))));
+  }, wrap(async ({ local_dir, name, workspace_id, accept_storage_charges = false }) => ok(await client.saveWorkspace(expandHome(local_dir), name, workspace_id, accept_storage_charges))));
   server.registerTool("delete_file", {
     title: "Delete a persistent file", description: "Permanently deletes a persistent file or cancels an unfinished upload. Files pinned by a Workspace version cannot be deleted.",
     inputSchema: { file_id: z.string(), user_confirmed: z.boolean() }, annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },

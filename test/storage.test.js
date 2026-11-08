@@ -23,6 +23,7 @@ test("multipart file transfer never forwards the account key to object storage",
   try {
     assert.equal((await storage.upload(local)).status, "ready");
     assert.deepEqual(contents, ["abc", "def"]);
+    assert.equal(calls[0].body.accept_storage_charges, false);
     assert.equal(calls.filter(c => c.url.endsWith("/complete")).length, 1);
   } finally { await fs.rm(dir, { recursive: true }); }
 });
@@ -102,4 +103,22 @@ test("storage disabled returns a clean error without touching object storage", a
   // 版本删除和文件删除都必须先征得用户确认，关闭存储时也不能先请求。
   assert.match((await tools.get('delete_workspace_version').run({version_id:'wsv_test',user_confirmed:false})).error,/Ask the user/);
   assert.equal(requests,1);
+});
+
+
+test("paid storage consent is explicit and never inferred from a truthy string", async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cgpu-persist-"));
+  const local = path.join(dir, "empty"); await fs.writeFile(local, "");
+  const accepted=[];
+  const api={request:async(method,url,body)=>{
+    if(url==="/v1/files"){accepted.push(body.accept_storage_charges);return {file_id:"file_test",part_count:1};}
+    if(url.endsWith("/complete"))return {status:"ready"};
+    return {url:"https://storage.example.invalid/part",content_length:0};
+  }};
+  try {
+    const storage=new PersistentStorage(api,async()=>({ok:true}));
+    await storage.upload(local,"artifact","empty",true);
+    await storage.upload(local,"artifact","empty","true");
+    assert.deepEqual(accepted,[true,false]);
+  } finally {await fs.rm(dir,{recursive:true});}
 });
