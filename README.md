@@ -166,7 +166,7 @@ The key also works with the OpenAI-compatible API at `https://cloudgpu.app/v1`. 
 
 These tools require persistent storage to be explicitly enabled on the server;
 they return `storage_not_enabled` until it is ready. Discover server capabilities
-at `/v1/public/compute-capabilities`. No free quota or retention period is promised.
+at `/v1/public/compute-capabilities`. Read `get_storage` for current included allowance, quota, prices and retention. Storage fees are separate from GPU Job budgets. Uploads above the included allowance require `accept_storage_charges=true` after user agreement; the default is false. Budget-limited connect-link keys cannot enable paid storage. Files expose `expires_at`; downloading does not renew retention. Versions containing expired files become unavailable, while active Jobs defer deletion.
 
 - `get_compute_catalog` and `quote_compute` use public discovery and server quotes,
   including required starting balance and `supports_jobs`. Pass the server quote to
