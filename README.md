@@ -254,3 +254,10 @@ node src/cli.js --help
 ## License
 
 MIT, see [LICENSE](LICENSE).
+
+
+### Apply a Workspace to a GPU you already rent
+
+Use `list_workspace_instances`, then `get_workspace_application` with the saved `version_id` and the selected `instance_id`. After the user agrees, call `apply_workspace` with `user_confirmed: true`, then poll status. The files appear in a new private project directory; existing files are never overwritten. This does not install dependencies, execute project code or start, stop, or restart a GPU. Rental billing continues during transfer. Budgeted Agent keys can only target instances created with the same key. Workspace requires a funded account.
+
+Repeated application of the same version to the same instance returns the existing result, including user edits after success. On `needs_attention`, `failed` or `conflict`, inspect the result rather than automatically retrying. A new saved version creates a separate directory. The feature must be enabled by the server; unavailable storage does not disable ordinary GPU rental or Job tools.

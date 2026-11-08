@@ -73,7 +73,7 @@ test("read-only MCP mode exposes no storage writes and delete requires confirmat
   const tools = new Map(); const server = { registerTool: (name, spec, run) => tools.set(name, { spec, run }) };
   const opts = { api: { request: () => { throw Error("must not call without confirmation"); } }, wrap: f => f, ok: x => x, fail: x => ({ error: x }), expandHome: x => x, readOnly: true };
   registerStorageTools(server, opts);
-  assert.deepEqual([...tools.keys()], ["get_storage", "list_files", "list_workspaces", "list_workspace_versions", "get_workspace_version"]);
+  assert.deepEqual([...tools.keys()], ["get_storage", "list_files", "list_workspaces", "list_workspace_versions", "get_workspace_version", "list_workspace_instances", "get_workspace_application"]);
   tools.clear(); registerStorageTools(server, { ...opts, readOnly: false });
   assert.equal(tools.get("delete_file").spec.annotations.destructiveHint, true);
   assert.match((await tools.get("delete_file").run({ file_id: "x", user_confirmed: false })).error, /Ask the user/);
@@ -121,4 +121,16 @@ test("paid storage consent is explicit and never inferred from a truthy string",
     await storage.upload(local,"artifact","empty","true");
     assert.deepEqual(accepted,[true,false]);
   } finally {await fs.rm(dir,{recursive:true});}
+});
+
+
+test("apply Workspace requires confirmation and never provisions or destroys GPU",async()=>{
+ const tools=new Map(),calls=[];
+ registerStorageTools({registerTool:(name,spec,run)=>tools.set(name,{spec,run})},{api:{request:async(method,url,body)=>{calls.push({method,url,body});return {status:'applying'};}},wrap:f=>f,ok:x=>x,fail:x=>({error:x}),readOnly:false,expandHome:x=>x});
+ const apply=tools.get('apply_workspace');
+ assert.equal(apply.spec.annotations.idempotentHint,true);
+ assert.match((await apply.run({version_id:'wsv_a',instance_id:'123',user_confirmed:false})).error,/Ask the user/);assert.equal(calls.length,0);
+ await apply.run({version_id:'wsv_a',instance_id:'123',user_confirmed:true});
+ await tools.get('get_workspace_application').run({version_id:'wsv_a',instance_id:'123'});
+ assert.deepEqual(calls.map(x=>[x.method,x.url]),[['POST','/v1/workspace-versions/wsv_a/applications/123'],['GET','/v1/workspace-versions/wsv_a/applications/123']]);
 });
