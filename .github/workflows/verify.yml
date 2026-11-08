@@ -1,0 +1,33 @@
+name: Verify MCP package
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Verify release manifest consistency and packaged files
+        run: |
+          node --input-type=module <<'JS'
+          import fs from 'node:fs';
+          import assert from 'node:assert/strict';
+          const read=p=>JSON.parse(fs.readFileSync(p,'utf8'));
+          const version=read('package.json').version;
+          assert.equal(read('package-lock.json').version,version);
+          assert.equal(read('package-lock.json').packages[''].version,version);
+          assert.equal(read('server.json').version,version);
+          assert.equal(read('server.json').packages[0].version,version);
+          assert.ok(fs.readFileSync('src/index.js','utf8').includes(`const VERSION = "${version}"`));
+          JS
+          npm pack --dry-run

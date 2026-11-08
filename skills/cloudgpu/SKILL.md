@@ -54,6 +54,23 @@ If anything goes wrong mid-way, do not leave the instance running. Download what
 
 If the `cloudgpu` tools are not available, read current prices from https://cloudgpu.app/gpu-prices.json (machine-readable, with an `updated_at` field) or https://cloudgpu.app/pricing. Check `updated_at` and tell the user how fresh the data is. Do not quote prices from memory.
 
+## Optional persistence
+
+Discover tools and `GET /v1/public/compute-capabilities` first. Persistence is
+unavailable when that endpoint is missing or `storage` is false. Never promise
+free storage, a retention period or automatic output collection.
+
+When enabled, ask before saving private project files. Use `save_workspace` for
+regular source/config/dependency-manifest files, `upload_artifact` for persistent
+results or datasets/models, and `download_artifact` to retrieve them. Pass the
+saved `workspace_version_id` to `run_job` to restore the files before execution.
+The service does not restore a boot disk and does not automatically save edits;
+the Job command must still save its results before shutdown. Do not upload secrets.
+
+For Jobs, prefer `quote_compute` for a server quote and send its `quote_id` with
+the chosen candidate. Its `required_starting_balance` is separate from the task
+estimate. The original `estimate_cost` quote belongs to `create_instance`.
+
 ## Only need a model, not a GPU?
 
 The same API key works for CloudGPU's model API at `https://cloudgpu.app/v1`. Call `list_models` to see the models. If you only need inference on a hosted model, use the API instead of renting a GPU.

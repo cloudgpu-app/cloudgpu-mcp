@@ -100,6 +100,8 @@ export class CloudGpuApi {
   models() {
     return this.request("GET", "/v1/models").then((r) => r.data || []);
   }
+  catalog() { return this.request("GET", "/v1/public/gpu-catalog", undefined, { noAuth: !this.apiKey }); }
+  quote(body) { return this.request("POST", "/v1/quotes", body, { noAuth: !this.apiKey }); }
 
   // ── jobs: start a GPU, run one command, destroy the GPU (server-side) ──
   createJob(body, idempotencyKey) {
