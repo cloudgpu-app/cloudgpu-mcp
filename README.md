@@ -10,6 +10,14 @@ It is a local (stdio) MCP server. It works with any MCP client that can start on
 
 ## Install
 
+For the browser-approval flow, add this local MCP server **without** an API key first:
+
+```bash
+claude mcp add cloudgpu -- npx -y cloudgpu-mcp
+```
+
+For another stdio client, use `command: "npx"` and `args: ["-y", "cloudgpu-mcp"]`; omit the environment key. Ask the Agent to call `connect_account`, open its returned CloudGPU link yourself, approve the account, spending limit, GPU concurrency and expiry, then let it call `finish_connect`. Never paste your password or API key into the conversation. The client must support and configure MCP; the approval link alone does not install tools in an arbitrary assistant. Existing API-key setup remains available below.
+
 1. Create an API key at [cloudgpu.app/api](https://cloudgpu.app/api) and add a prepaid balance (card or USDT).
 2. Add the server to your client. Node.js 18 or newer is required. The key goes in the environment variable `CLOUDGPU_API_KEY`.
 
@@ -162,7 +170,7 @@ The server also provides a `train_on_cloudgpu` prompt.
 
 The key also works with the OpenAI-compatible API at `https://cloudgpu.app/v1`. Call `list_models` (or `GET /v1/models`) to see the available model IDs. Model prices are on [cloudgpu.app/api](https://cloudgpu.app/api).
 
-## Optional persistent files and Workspaces (development)
+## Optional persistent files and Workspaces
 
 These tools require persistent storage to be explicitly enabled on the server;
 they return `storage_not_enabled` until it is ready. Discover server capabilities
@@ -271,6 +279,8 @@ The source branch adds three preparation tools. These are not promises about the
 - `prepare_model_deployment`: prepare a setup script for the **existing ComfyUI template**, with direct model downloads and optional UI-format workflow JSON. Use the model name as a category (e.g. `checkpoints`, `loras`, `vae`). Review and approve the script before deploying. Custom nodes are not installed and workflows are not executed automatically. This is preparation support, not a real-GPU-validated template catalog.
 
 `run_job` accepts optional `model_references`. A supporting backend is checked before submission; an old backend cannot silently ignore the references. Models are downloaded after Workspace restoration, into `$CLOUDGPU_MODEL_DIR/<name>/<path>`. Download time consumes the same rental budget. File size/checksum, disk and download timeout failures stop the Job and follow the existing release-evidence flow, without provisioning retries. The weights disappear with the GPU unless the user separately persists them; no R2 model cache is added.
+
+Agent-first interaction: ask your Agent to run the project again; no separate web Job console or model JSON form is required. Team-authorized keys spend the selected team wallet; personal funds are separate.
 
 Suggested workflow: resolve references → review model license/files and compatible environment → get quote → obtain explicit budget/time/GPU approval → run once with a stable idempotency key → poll status/cost → prepare a rerun only after success. Output collection remains the user's command's responsibility.
 
