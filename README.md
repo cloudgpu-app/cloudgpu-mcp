@@ -270,9 +270,9 @@ Use `list_workspace_instances`, then `get_workspace_application` with the saved 
 
 Repeated application of the same version to the same instance returns the existing result, including user edits after success. On `needs_attention`, `failed` or `conflict`, inspect the result rather than automatically retrying. A new saved version creates a separate directory. The feature must be enabled by the server; unavailable storage does not disable ordinary GPU rental or Job tools.
 
-### D13 development candidate (not published)
+### D13 model preparation (0.8.0)
 
-The source branch adds three preparation tools. These are not promises about the installed npm version:
+Version 0.8.0 adds three preparation tools; check both the installed tools and live backend capabilities before using them:
 
 - `resolve_model_reference`: resolve a public Hugging Face branch/tag and explicit filenames to a commit-addressed manifest, sizes and available LFS SHA-256. No weights are hosted by CloudGPU. To enable verified use of the instance’s existing mirror, up to 8 selected JSON configuration files of at most 64 KiB each may be read from the pinned origin and SHA-256 hashed, within a shared 15-second deadline. Weight files are not fetched by this resolver. Private/gated models are refused.
 - `prepare_job_rerun`: read parameters from a successful owned Job. No new GPU, old quote or old idempotency key. Obtain a fresh quote and explicit budget approval before `run_job`.
@@ -284,7 +284,7 @@ Agent-first interaction: ask your Agent to run the project again; no separate we
 
 Suggested workflow: resolve references → review model license/files and compatible environment → get quote → obtain explicit budget/time/GPU approval → run once with a stable idempotency key → poll status/cost → prepare a rerun only after success. Output collection remains the user's command's responsibility.
 
-See [`examples/pinned-model-job.mjs`](examples/pinned-model-job.mjs) for a default **dry-run** REST example. Do not enable submission during routine tests. No new paid GPU acceptance or npm/Registry release was performed for this candidate.
+See [`examples/pinned-model-job.mjs`](examples/pinned-model-job.mjs) for a default **dry-run** REST example. Do not enable submission during routine tests. Bounded internal acceptance covered actual MCP, candidate HTTP authentication/MySQL, independent model hashes, two GPU runs and release. A separate ComfyUI image accepted model links and a workflow file. This does not validate arbitrary custom nodes or graph execution.
 
 ## Small Job output snapshots and diagnosis (0.7.0)
 
