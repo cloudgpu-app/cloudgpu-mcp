@@ -1,5 +1,5 @@
-import {resolveModelReference} from "./model-references.js";
 #!/usr/bin/env node
+import {resolveModelReference} from "./model-references.js";
 // CloudGPU MCP server (stdio). Lets an AI coding assistant rent a GPU on cloudgpu.app, run a job,
 // fetch the results and shut the GPU down.
 //
