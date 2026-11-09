@@ -263,7 +263,7 @@ Use `list_workspace_instances`, then `get_workspace_application` with the saved 
 Repeated application of the same version to the same instance returns the existing result, including user edits after success. On `needs_attention`, `failed` or `conflict`, inspect the result rather than automatically retrying. A new saved version creates a separate directory. The feature must be enabled by the server; unavailable storage does not disable ordinary GPU rental or Job tools.
 
 
-## Development candidate: small Job output snapshots and diagnosis
+## Small Job output snapshots and diagnosis (0.7.0)
 
 This branch adds `diagnose_job` (read-only) and `save_job_output` (explicit storage write). Check the installed tool list before using them; they are not a claim about the currently published npm release.
 
