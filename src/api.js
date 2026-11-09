@@ -106,8 +106,16 @@ export class CloudGpuApi {
   // ── jobs: start a GPU, run one command, destroy the GPU (server-side) ──
   createJob(body, idempotencyKey) {
     if (!idempotencyKey) throw new Error("createJob needs an idempotency key");
+    if (body.model_references?.length) return this.createModelJob(body,idempotencyKey);
     return this.request("POST", "/v1/jobs", body, { idempotencyKey });
   }
+  async createModelJob(body,idempotencyKey) {
+      const caps=await this.request("GET","/v1/public/compute-capabilities",undefined,{noAuth:true});
+      if(caps.model_references!==true) throw new ApiError(503,"model_references_unavailable","Backend has not enabled pinned model loading; no Job was submitted.");
+    return this.request("POST", "/v1/jobs", body, { idempotencyKey });
+  }
+  prepareModelDeployment(body) { return this.request("POST", "/v1/jobs/prepare-model-deployment", body); }
+  jobRerunSpec(id) { return this.request("GET", `/v1/jobs/${encodeURIComponent(id)}/rerun-spec`); }
   job(id) {
     return this.request("GET", `/v1/jobs/${encodeURIComponent(id)}`);
   }

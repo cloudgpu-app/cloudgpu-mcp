@@ -1,3 +1,4 @@
+import {resolveModelReference} from "./model-references.js";
 #!/usr/bin/env node
 // CloudGPU MCP server (stdio). Lets an AI coding assistant rent a GPU on cloudgpu.app, run a job,
 // fetch the results and shut the GPU down.
@@ -480,6 +481,21 @@ if (!cfg.readOnly) {
     }),
   );
 
+  server.registerTool("resolve_model_reference", {
+    title:"Pin a public model reference", description:"Read-only. Resolve a public Hugging Face model revision and explicit file list to immutable commit, sizes and available LFS SHA-256 checksums. Does not download weights, rent a GPU or authenticate to Hugging Face. Review model license and application compatibility separately.",
+    inputSchema:{repo_id:z.string(),revision:z.string().default("main"),name:z.string(),files:z.array(z.string()).min(1).max(32)},
+    annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:true},
+  },wrap(async (input)=>ok(await resolveModelReference(input))));
+  server.registerTool("prepare_model_deployment", {
+    title:"Prepare models and a ComfyUI workflow",description:"Preparation only; no GPU is started. Create a reviewed setup script for the existing ComfyUI template. Downloads go from the public model host directly to the rented GPU, never through CloudGPU storage. Use model names as categories (checkpoints, loras, vae, diffusion_models, text_encoders, clip, controlnet, upscale_models). Does not install custom nodes, execute workflows, accept licenses for the user, or promise compatibility. Pass the setup_script only after explicit approval to the existing deployment flow.",
+    inputSchema:{model_references:z.array(z.record(z.unknown())).min(1).max(4),workflow:z.record(z.unknown()).optional()},
+    annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
+  },wrap(async (input)=>ok(await api.prepareModelDeployment(input))));
+  server.registerTool("prepare_job_rerun", {
+    title:"Prepare a successful job for rerun",description:"Read-only. Retrieve the original command, pinned model references and Workspace without starting anything. Request a fresh quote, check Workspace expiry and obtain explicit budget approval before calling run_job with a NEW idempotency key. Never reuse the old quote or key.",
+    inputSchema:{job_id:z.string()},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:true},
+  },wrap(async ({job_id})=>ok(await api.jobRerunSpec(job_id))));
+
   server.registerTool(
     "run_job",
     {
@@ -496,6 +512,7 @@ if (!cfg.readOnly) {
         gpu_count: z.number().int().min(1).max(8).default(1),
         disk_gb: z.number().int().optional().describe("Larger system disk: 100, 200 or 500; omit for the standard disk"),
         workspace_version_id: z.string().optional().describe("Immutable Workspace version to restore before the command; requires enabled persistent storage"),
+        model_references: z.array(z.object({name:z.string(),repo_id:z.string(),revision:z.string().regex(/^[0-9a-f]{40}$/),files:z.array(z.object({path:z.string(),size_bytes:z.number().int().positive(),sha256:z.string().regex(/^[0-9a-f]{64}$/).optional()})).min(1).max(32)})).max(4).optional().describe("Pinned public model references from resolve_model_reference. Downloads into $CLOUDGPU_MODEL_DIR/<name> before the command; download time consumes the same GPU budget. No R2 cache or remote repository code execution."),
         quote_id: z.string().optional().describe("Server quote from quote_compute, starting quote_; binds configuration and checks price at submission"),
         max_spend_usd: z.number().positive().describe(`Budget for this job in USD (at most ${cfg.maxSpend})`),
         max_hours: z.number().positive().describe(`Hard time limit in hours (at most ${cfg.maxHours})`),
@@ -504,7 +521,7 @@ if (!cfg.readOnly) {
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
+    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
       if (user_confirmed !== true) {
         return fail("Not started: tell the user the GPU, budget and time limit, wait for an explicit yes, then call again with user_confirmed=true.");
       }
@@ -523,6 +540,7 @@ if (!cfg.readOnly) {
       if (template) body.template = template;
       if (disk_gb) body.disk_gb = disk_gb;
       if (workspace_version_id) body.workspace_version_id = workspace_version_id;
+      if (model_references?.length) body.model_references = model_references;
       if (quote_id) body.quote_id = quote_id;
       const job = await api.createJob(body, key);
       return ok({

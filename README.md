@@ -261,3 +261,17 @@ MIT, see [LICENSE](LICENSE).
 Use `list_workspace_instances`, then `get_workspace_application` with the saved `version_id` and the selected `instance_id`. After the user agrees, call `apply_workspace` with `user_confirmed: true`, then poll status. The files appear in a new private project directory; existing files are never overwritten. This does not install dependencies, execute project code or start, stop, or restart a GPU. Rental billing continues during transfer. Budgeted Agent keys can only target instances created with the same key. Workspace requires a funded account.
 
 Repeated application of the same version to the same instance returns the existing result, including user edits after success. On `needs_attention`, `failed` or `conflict`, inspect the result rather than automatically retrying. A new saved version creates a separate directory. The feature must be enabled by the server; unavailable storage does not disable ordinary GPU rental or Job tools.
+
+### D13 development candidate (not published)
+
+The source branch adds three preparation tools. These are not promises about the installed npm version:
+
+- `resolve_model_reference`: resolve a public Hugging Face branch/tag and explicit filenames to a commit-addressed manifest, sizes and available LFS SHA-256. No weights are hosted by CloudGPU. Private/gated models are refused.
+- `prepare_job_rerun`: read parameters from a successful owned Job. No new GPU, old quote or old idempotency key. Obtain a fresh quote and explicit budget approval before `run_job`.
+- `prepare_model_deployment`: prepare a setup script for the **existing ComfyUI template**, with direct model downloads and optional UI-format workflow JSON. Use the model name as a category (e.g. `checkpoints`, `loras`, `vae`). Review and approve the script before deploying. Custom nodes are not installed and workflows are not executed automatically. This is preparation support, not a real-GPU-validated template catalog.
+
+`run_job` accepts optional `model_references`. A supporting backend is checked before submission; an old backend cannot silently ignore the references. Models are downloaded after Workspace restoration, into `$CLOUDGPU_MODEL_DIR/<name>/<path>`. Download time consumes the same rental budget. File size/checksum, disk and download timeout failures stop the Job and follow the existing release-evidence flow, without provisioning retries. The weights disappear with the GPU unless the user separately persists them; no R2 model cache is added.
+
+Suggested workflow: resolve references → review model license/files and compatible environment → get quote → obtain explicit budget/time/GPU approval → run once with a stable idempotency key → poll status/cost → prepare a rerun only after success. Output collection remains the user's command's responsibility.
+
+See [`examples/pinned-model-job.mjs`](examples/pinned-model-job.mjs) for a default **dry-run** REST example. Do not enable submission during routine tests. No new paid GPU acceptance or npm/Registry release was performed for this candidate.

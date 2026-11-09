@@ -13,7 +13,8 @@
     "src",
     "rules",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "examples"
   ],
   "engines": {
     "node": ">=18.3"
