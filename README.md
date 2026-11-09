@@ -285,3 +285,13 @@ Agent-first interaction: ask your Agent to run the project again; no separate we
 Suggested workflow: resolve references → review model license/files and compatible environment → get quote → obtain explicit budget/time/GPU approval → run once with a stable idempotency key → poll status/cost → prepare a rerun only after success. Output collection remains the user's command's responsibility.
 
 See [`examples/pinned-model-job.mjs`](examples/pinned-model-job.mjs) for a default **dry-run** REST example. Do not enable submission during routine tests. No new paid GPU acceptance or npm/Registry release was performed for this candidate.
+
+## Small Job output snapshots and diagnosis (0.7.0)
+
+This branch adds `diagnose_job` (read-only) and `save_job_output` (explicit storage write). Check the installed tool list before using them; they are not a claim about the currently published npm release.
+
+`save_job_output` stores only the ended Job output tail as a small Artifact. It is not a full log, file collector, disk snapshot or automatic backup. Known credential patterns and queried URLs are refused. Review output for other sensitive data before approving storage. Existing eligibility, quota, retention and explicit paid-storage consent apply; the GPU Job budget does not authorize paid storage. No GPU is created, kept alive or stopped by these tools. Matching snapshots are verified and reused when found; concurrent different client processes may still create duplicate artifacts.
+
+`diagnose_job` reports the error category, platform instance status and whether platform charges are final. It does not prove supplier release, infer that command failures are always user errors, or automatically rerun work. `needs_attention` requires resource reconciliation before a new task. A rerun requires a fresh quote, explicit approval and a new idempotency key.
+
+Registry configuration allows discovery and connect-link approval without pre-entering a key. A tool-enabled MCP client is still required; a link does not install a client or grant unlimited spending. No new fixed infrastructure or model storage is introduced.
