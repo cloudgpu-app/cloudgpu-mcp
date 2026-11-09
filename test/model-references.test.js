@@ -32,3 +32,27 @@ test("older backend cannot silently ignore model references and start an unprepa
 test("gated model metadata is refused before any GPU submission",async()=>{
  await assert.rejects(()=>resolveModelReference(input,async()=>new Response(JSON.stringify({sha,gated:"manual",siblings:[{rfilename:"config.json",size:3}]}))),/gated/);
 });
+test('small JSON config is hashed from pinned origin without downloading weights or forwarding credentials',async()=>{
+ const calls=[];
+ const result=await resolveModelReference({...input,files:['config.json','weights.bin']},async(url,opts)=>{
+  calls.push({url,opts});
+  if(calls.length===1)return new Response(JSON.stringify({sha,siblings:[{rfilename:'config.json',size:2},{rfilename:'weights.bin',size:123}]}));
+  assert.equal(url,`https://huggingface.co/org/model/raw/${sha}/config.json`);
+  assert.equal(opts.headers.Authorization,undefined);assert.equal(opts.redirect,'error');return new Response('{}');
+ });
+ assert.equal(calls.length,2);assert.equal(result.files[0].sha256,'44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a');
+ assert.equal(result.files[1].sha256,undefined);
+});
+test('config hashing refuses short or oversized origin content',async()=>{
+ for(const content of ['x','xxxx']){
+  let calls=0;
+  await assert.rejects(()=>resolveModelReference(input,async()=>++calls===1?new Response(JSON.stringify({sha,siblings:[{rfilename:'config.json',size:2}]})):new Response(content)),/size mismatch/);
+ }
+});
+test('config hashing has a bounded file count and never fetches oversized JSON',async()=>{
+ const files=Array.from({length:9},(_,i)=>`config${i}.json`);let calls=0;
+ await assert.rejects(()=>resolveModelReference({...input,files},async()=>{calls++;return new Response(JSON.stringify({sha,siblings:files.map(rfilename=>({rfilename,size:2}))}));}),/Too many/);
+ assert.equal(calls,1);
+ calls=0;const result=await resolveModelReference(input,async()=>{calls++;return new Response(JSON.stringify({sha,siblings:[{rfilename:'config.json',size:65537}]}));});
+ assert.equal(calls,1);assert.equal(result.files[0].sha256,undefined);
+});

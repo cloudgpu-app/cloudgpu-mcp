@@ -1,4 +1,5 @@
 // 只向 Hugging Face 的固定公开 API 解析引用，不携带 CloudGPU key 或用户 token。
+import {createHash} from 'node:crypto';
 export async function resolveModelReference({repo_id, revision = "main", name, files}, fetchImpl = globalThis.fetch) {
   if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}\/[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(repo_id)
     || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,119}$/.test(revision)
@@ -22,5 +23,22 @@ export async function resolveModelReference({repo_id, revision = "main", name, f
     return {path,size_bytes:size,...(sha?{sha256:sha}:{})};
   });
   if(selected.reduce((n,f)=>n+f.size_bytes,0)>100_000_000_000)throw new Error("Model exceeds the first-version 100 GB job limit");
+  // Git-backed config files have no LFS SHA. Hash bounded public JSON metadata
+  // on the origin so the GPU can verify it even when using its existing mirror.
+  const configs=selected.filter(f=>!f.sha256&&f.path.endsWith('.json')&&f.size_bytes<=65536);
+  if(configs.length>8)throw new Error('Too many unhashed JSON metadata files; supply an independently verified manifest');
+  const deadline=Date.now()+15000;
+  for(const file of configs){
+    const remaining=deadline-Date.now();
+    if(remaining<=0)throw new Error('Model config metadata deadline exceeded');
+    const config=await fetchImpl(`https://huggingface.co/${repo_id}/raw/${data.sha}/${file.path.split('/').map(encodeURIComponent).join('/')}`,
+      {headers:{'User-Agent':'CloudGPU-model-reference/1'},redirect:'error',signal:AbortSignal.timeout(remaining)});
+    if(!config.ok)throw new Error('Public model config metadata unavailable');
+    const stream=config.body.getReader();const content=[];let size=0;
+    try{while(true){const r=await stream.read();if(r.done)break;size+=r.value.byteLength;if(size>file.size_bytes)throw new Error('Model config metadata size mismatch');content.push(r.value);}}
+    finally{await stream.cancel();}
+    if(size!==file.size_bytes)throw new Error('Model config metadata size mismatch');
+    file.sha256=createHash('sha256').update(Buffer.concat(content)).digest('hex');
+  }
   return {name,repo_id,revision:data.sha,files:selected};
 }

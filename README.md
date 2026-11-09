@@ -274,7 +274,7 @@ Repeated application of the same version to the same instance returns the existi
 
 The source branch adds three preparation tools. These are not promises about the installed npm version:
 
-- `resolve_model_reference`: resolve a public Hugging Face branch/tag and explicit filenames to a commit-addressed manifest, sizes and available LFS SHA-256. No weights are hosted by CloudGPU. Private/gated models are refused.
+- `resolve_model_reference`: resolve a public Hugging Face branch/tag and explicit filenames to a commit-addressed manifest, sizes and available LFS SHA-256. No weights are hosted by CloudGPU. To enable verified use of the instance’s existing mirror, up to 8 selected JSON configuration files of at most 64 KiB each may be read from the pinned origin and SHA-256 hashed, within a shared 15-second deadline. Weight files are not fetched by this resolver. Private/gated models are refused.
 - `prepare_job_rerun`: read parameters from a successful owned Job. No new GPU, old quote or old idempotency key. Obtain a fresh quote and explicit budget approval before `run_job`.
 - `prepare_model_deployment`: prepare a setup script for the **existing ComfyUI template**, with direct model downloads and optional UI-format workflow JSON. Use the model name as a category (e.g. `checkpoints`, `loras`, `vae`). Review and approve the script before deploying. Custom nodes are not installed and workflows are not executed automatically. This is preparation support, not a real-GPU-validated template catalog.
 
