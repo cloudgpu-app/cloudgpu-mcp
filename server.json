@@ -22,8 +22,8 @@
       "environmentVariables": [
         {
           "name": "CLOUDGPU_API_KEY",
-          "description": "CloudGPU API key (starts with cgw-sk-). Create one at https://cloudgpu.app/api",
-          "isRequired": true,
+          "description": "Optional CloudGPU API key. Without a key, use public discovery and connect_account for an owner-approved scoped key.",
+          "isRequired": false,
           "isSecret": true
         }
       ]
