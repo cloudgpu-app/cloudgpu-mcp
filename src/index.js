@@ -19,6 +19,7 @@ import { SshPool, exec, upload, download, writeFile } from "./ssh.js";
 import { loadStoredKey, saveStoredKey } from "./credentials.js";
 import crypto from "node:crypto";
 import { registerStorageTools } from "./storage.js";
+import { registerJobResultTools } from "./job-results.js";
 import {
   checkCommand,
   sensitiveReason,
@@ -30,7 +31,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.6.0";
+const VERSION = "0.7.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -64,6 +65,7 @@ The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
 registerStorageTools(server, { api, wrap, ok, fail, readOnly: cfg.readOnly, expandHome });
+registerJobResultTools(server, { api, wrap, ok, readOnly: cfg.readOnly });
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
@@ -772,5 +774,5 @@ process.on("SIGINT", bye);
 process.on("SIGTERM", bye);
 process.stdin.on("close", bye);
 if (!cfg.apiKey) {
-  console.error("cloudgpu-mcp: CLOUDGPU_API_KEY is not set; tools will return an error until it is. Create a key at https://cloudgpu.app/api");
+  console.error("cloudgpu-mcp: no saved key. Public discovery is available; use connect_account and finish_connect for owner-approved access.");
 }

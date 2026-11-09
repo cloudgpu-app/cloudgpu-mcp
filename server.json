@@ -8,13 +8,13 @@
     "url": "https://github.com/mrhy7176/cloudgpu-mcp",
     "source": "github"
   },
-  "version": "0.6.0",
+  "version": "0.7.0",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "cloudgpu-mcp",
-      "version": "0.6.0",
+      "version": "0.7.0",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
@@ -22,8 +22,8 @@
       "environmentVariables": [
         {
           "name": "CLOUDGPU_API_KEY",
-          "description": "CloudGPU API key (starts with cgw-sk-). Create one at https://cloudgpu.app/api",
-          "isRequired": true,
+          "description": "Optional CloudGPU API key. Without a key, use public discovery and connect_account for an owner-approved scoped key.",
+          "isRequired": false,
           "isSecret": true
         }
       ]

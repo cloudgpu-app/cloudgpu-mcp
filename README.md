@@ -261,3 +261,14 @@ MIT, see [LICENSE](LICENSE).
 Use `list_workspace_instances`, then `get_workspace_application` with the saved `version_id` and the selected `instance_id`. After the user agrees, call `apply_workspace` with `user_confirmed: true`, then poll status. The files appear in a new private project directory; existing files are never overwritten. This does not install dependencies, execute project code or start, stop, or restart a GPU. Rental billing continues during transfer. Budgeted Agent keys can only target instances created with the same key. Workspace requires a funded account.
 
 Repeated application of the same version to the same instance returns the existing result, including user edits after success. On `needs_attention`, `failed` or `conflict`, inspect the result rather than automatically retrying. A new saved version creates a separate directory. The feature must be enabled by the server; unavailable storage does not disable ordinary GPU rental or Job tools.
+
+
+## Small Job output snapshots and diagnosis (0.7.0)
+
+This branch adds `diagnose_job` (read-only) and `save_job_output` (explicit storage write). Check the installed tool list before using them; they are not a claim about the currently published npm release.
+
+`save_job_output` stores only the ended Job output tail as a small Artifact. It is not a full log, file collector, disk snapshot or automatic backup. Known credential patterns and queried URLs are refused. Review output for other sensitive data before approving storage. Existing eligibility, quota, retention and explicit paid-storage consent apply; the GPU Job budget does not authorize paid storage. No GPU is created, kept alive or stopped by these tools. Matching snapshots are verified and reused when found; concurrent different client processes may still create duplicate artifacts.
+
+`diagnose_job` reports the error category, platform instance status and whether platform charges are final. It does not prove supplier release, infer that command failures are always user errors, or automatically rerun work. `needs_attention` requires resource reconciliation before a new task. A rerun requires a fresh quote, explicit approval and a new idempotency key.
+
+Registry configuration allows discovery and connect-link approval without pre-entering a key. A tool-enabled MCP client is still required; a link does not install a client or grant unlimited spending. No new fixed infrastructure or model storage is introduced.
