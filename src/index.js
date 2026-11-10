@@ -32,7 +32,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.8.0";
+const VERSION = "0.9.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -60,7 +60,7 @@ const session = new Map();
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) rents GPUs billed per minute from a prepaid balance.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
 Rules: never rent without the user's yes on a quote; always set a budget and time limit (the platform shuts the instance down when either is hit); download results before stop_instance because destroying an instance erases its disk; never change passwords, SSH config, the firewall or the platform's monitoring agent on the instance; if anything fails, download what exists and stop the instance rather than leaving it running.
-Jobs: for a batch task (one command that writes its results somewhere), run_job does the whole thing on CloudGPU's servers: start a GPU, run the command, destroy the GPU, with the same per-job budget and time limit. Check it with get_job. The GPU's disk is erased when the job ends, so the command must upload its results itself (for example to the user's own S3 bucket) or print them; get_job returns the last ~4 KB of output.
+Jobs: for a batch task (one command that writes its results somewhere), run_job does the whole thing on CloudGPU's servers: start a GPU, run the command, destroy the GPU, with the same per-job budget and time limit. Check it with get_job. The GPU disk is erased on release. When automatic_output_collection is enabled, declare explicit outputs and write them under $CLOUDGPU_OUTPUT_DIR; inspect output_collection and download ready file IDs afterward. Otherwise upload results yourself or print them; get_job returns the last ~4 KB of logs. Saving output shares the same GPU budget and existing storage quota/fees; never infer storage-fee acceptance.
 No API key yet? connect_account gives the user a link to approve this assistant with a spending limit; then finish_connect stores the key on this computer.
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
@@ -505,7 +505,7 @@ if (!cfg.readOnly) {
       description:
         "Costs money. CloudGPU starts a GPU, runs one bash command on it, then destroys the GPU, all on its servers, so it finishes even if this assistant disconnects. " +
         "max_spend_usd and max_hours are enforced by the servers. Retrying with the same idempotency_key never starts a second GPU; this tool generates one if you leave it out and returns it. " +
-        "The disk is erased when the job ends: the command must upload its own results (for example to the user's storage) or print them. " +
+        "The disk is erased when the job ends. When automatic_output_collection is available, declare outputs and write only those files under $CLOUDGPU_OUTPUT_DIR for persistent storage before release. Otherwise upload results yourself or print them. Storage retention and fees follow the account policy; collection consumes the same GPU budget and may fail. " +
         "Requires the user's explicit yes on the GPU, budget and time limit.",
       inputSchema: {
         command: z.string().min(1).max(32768).describe("bash command or script to run on the GPU"),
@@ -515,6 +515,11 @@ if (!cfg.readOnly) {
         disk_gb: z.number().int().optional().describe("Larger system disk: 100, 200 or 500; omit for the standard disk"),
         workspace_version_id: z.string().optional().describe("Immutable Workspace version to restore before the command; requires enabled persistent storage"),
         model_references: z.array(z.object({name:z.string(),repo_id:z.string(),revision:z.string().regex(/^[0-9a-f]{40}$/),files:z.array(z.object({path:z.string(),size_bytes:z.number().int().positive(),sha256:z.string().regex(/^[0-9a-f]{64}$/).optional()})).min(1).max(32)})).max(4).optional().describe("Pinned public model references from resolve_model_reference. Downloads into $CLOUDGPU_MODEL_DIR/<name> before the command; download time consumes the same GPU budget. No R2 cache or remote repository code execution."),
+        outputs: z.object({
+          files: z.array(z.string().min(1).max(512)).min(1).max(16),
+          max_bytes: z.number().int().min(1).max(104857600).optional(),
+          accept_storage_charges: z.boolean().optional(),
+        }).strict().optional().describe("Explicit relative output files under $CLOUDGPU_OUTPUT_DIR; no globs, symlinks, hidden or credential files. Default total limit 10 MiB, maximum 100 MiB. Only set accept_storage_charges=true after the user agrees to existing paid storage terms. Inspect output_collection after completion; the GPU is released even if saving fails."),
         quote_id: z.string().optional().describe("Server quote from quote_compute, starting quote_; binds configuration and checks price at submission"),
         max_spend_usd: z.number().positive().describe(`Budget for this job in USD (at most ${cfg.maxSpend})`),
         max_hours: z.number().positive().describe(`Hard time limit in hours (at most ${cfg.maxHours})`),
@@ -523,7 +528,7 @@ if (!cfg.readOnly) {
       },
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
+    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, outputs, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
       if (user_confirmed !== true) {
         return fail("Not started: tell the user the GPU, budget and time limit, wait for an explicit yes, then call again with user_confirmed=true.");
       }
@@ -542,6 +547,7 @@ if (!cfg.readOnly) {
       if (template) body.template = template;
       if (disk_gb) body.disk_gb = disk_gb;
       if (workspace_version_id) body.workspace_version_id = workspace_version_id;
+      if (outputs) body.outputs = outputs;
       if (model_references?.length) body.model_references = model_references;
       if (quote_id) body.quote_id = quote_id;
       const job = await api.createJob(body, key);

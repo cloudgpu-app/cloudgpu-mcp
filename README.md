@@ -295,3 +295,9 @@ This branch adds `diagnose_job` (read-only) and `save_job_output` (explicit stor
 `diagnose_job` reports the error category, platform instance status and whether platform charges are final. It does not prove supplier release, infer that command failures are always user errors, or automatically rerun work. `needs_attention` requires resource reconciliation before a new task. A rerun requires a fresh quote, explicit approval and a new idempotency key.
 
 Registry configuration allows discovery and connect-link approval without pre-entering a key. A tool-enabled MCP client is still required; a link does not install a client or grant unlimited spending. No new fixed infrastructure or model storage is introduced.
+
+### Optional Job output collection (requires backend capability)
+
+Call `run_job` with `outputs: {"files":["metrics.json"],"max_bytes":1048576}` and a command that writes to `"$CLOUDGPU_OUTPUT_DIR/metrics.json"`. Files are relative to this dedicated directory; the platform does not scan the disk. The server refuses unsupported backends rather than silently starting a Job without saving results. GPU download/execution/upload time shares the same time and spend limits.
+
+After completion, inspect `get_job.output_collection`: only `succeeded` confirms collection. Each saved entry gives `file_id`, `sha256`, `size_bytes` and status; use existing file download tools. Partial failure may retain ready files, but is not overall success. Cancellation, budget exhaustion, instance loss or interrupted collection can prevent saving; GPU release still proceeds with no automatic re-run. Files follow the existing account quota, storage pricing and 30-day retention. `accept_storage_charges` defaults false and requires explicit user agreement to paid storage. The 10 MiB default/100 MiB maximum is a transfer bound, not a new user quota. File-name protections cannot guarantee that user-selected file contents contain no secrets.

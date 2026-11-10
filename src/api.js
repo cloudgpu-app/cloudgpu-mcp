@@ -106,8 +106,17 @@ export class CloudGpuApi {
   // ── jobs: start a GPU, run one command, destroy the GPU (server-side) ──
   createJob(body, idempotencyKey) {
     if (!idempotencyKey) throw new Error("createJob needs an idempotency key");
+    if (body.outputs) return this.createOutputJob(body,idempotencyKey);
     if (body.model_references?.length) return this.createModelJob(body,idempotencyKey);
     return this.request("POST", "/v1/jobs", body, { idempotencyKey });
+  }
+  async createOutputJob(body,idempotencyKey) {
+    const caps=await this.request("GET","/v1/public/compute-capabilities",undefined,{noAuth:true});
+    if(caps.automatic_output_collection!==true || caps.storage!==true)
+      throw new ApiError(503,"outputs_unavailable","Automatic output collection is not enabled; no Job was submitted. Do not silently remove outputs.");
+    if(body.model_references?.length && caps.model_references!==true)
+      throw new ApiError(503,"model_references_unavailable","Pinned model loading is not enabled; no Job was submitted.");
+    return this.request("POST","/v1/jobs",body,{idempotencyKey});
   }
   async createModelJob(body,idempotencyKey) {
       const caps=await this.request("GET","/v1/public/compute-capabilities",undefined,{noAuth:true});
