@@ -305,3 +305,15 @@ After completion, inspect `get_job.output_collection`: only `succeeded` confirms
 ### Job log snapshot safety
 
 Version 0.8.0 still has a credential-filter gap in `save_job_output`; upgrading to 0.8.0 did not fix it. The 0.9.0 candidate rejects quoted JSON credential keys, common prefixed/aliased secret fields, authorization schemes, queried/user-info URLs and bounded common escaped representations before any storage operation. Safe logs remain byte-identical. This is a conservative recognizable-pattern check, not a guarantee that arbitrary, encrypted or unknown credentials will be detected. Save only logs you know are sanitized, with explicit user approval; no actual exposure is established by this fix.
+
+## Reusable task drafts (D16 first slice)
+
+`list_task_templates` and `prepare_task_template` are local, read-only tools: no account is required, no API call is made, and preparing a draft never rents a GPU. Start with `gpu-check`, `csv-summary`, or `workspace-python`. CSV work normally belongs on your local CPU; do not rent a GPU merely to process a small CSV.
+
+```json
+{"template_id":"gpu-check","persist_results":false}
+```
+
+For an existing project, pass `workspace-python`, an immutable `workspace_version_id`, and a reviewed relative `.py` entrypoint. The script runs in the restored project; prepare its dependencies yourself. Inference/training compatibility is not certified. For ComfyUI model/workflow preparation, keep using `prepare_model_deployment`; complete ComfyUI and LoRA batch recipes are not included in this slice.
+
+The returned `run_job_draft` deliberately omits GPU selection, quote, budget, time limit, approval and idempotency key. Request a live quote, obtain explicit approval, then call existing `run_job`. Failed tasks are not automatically retried. To preserve results, explicitly request `persist_results`; normal storage eligibility, retention, quota and fees apply. `workspace-python` also requires the exact `output_files` your script writes under `$CLOUDGPU_OUTPUT_DIR`. Storage-fee consent defaults to false and is separate from GPU approval.

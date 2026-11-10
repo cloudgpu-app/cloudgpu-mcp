@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {registerTaskTemplateTools} from './task-templates.js';
 import {resolveModelReference} from "./model-references.js";
 // CloudGPU MCP server (stdio). Lets an AI coding assistant rent a GPU on cloudgpu.app, run a job,
 // fetch the results and shut the GPU down.
@@ -32,7 +33,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.9.0";
+const VERSION = "0.10.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -58,6 +59,7 @@ const quotes = new Quotes();
 const session = new Map();
 
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) rents GPUs billed per minute from a prepaid balance.
+Task recipes: list_task_templates and prepare_task_template return local read-only drafts, never a paid submission. Check prerequisites, quote and obtain explicit approval before run_job. Prefer local CPU processing when a GPU is unnecessary.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
 Rules: never rent without the user's yes on a quote; always set a budget and time limit (the platform shuts the instance down when either is hit); download results before stop_instance because destroying an instance erases its disk; never change passwords, SSH config, the firewall or the platform's monitoring agent on the instance; if anything fails, download what exists and stop the instance rather than leaving it running.
 Jobs: for a batch task (one command that writes its results somewhere), run_job does the whole thing on CloudGPU's servers: start a GPU, run the command, destroy the GPU, with the same per-job budget and time limit. Check it with get_job. The GPU disk is erased on release. When automatic_output_collection is enabled, declare explicit outputs and write them under $CLOUDGPU_OUTPUT_DIR; inspect output_collection and download ready file IDs afterward. Otherwise upload results yourself or print them; get_job returns the last ~4 KB of logs. Saving output shares the same GPU budget and existing storage quota/fees; never infer storage-fee acceptance.
@@ -65,6 +67,7 @@ No API key yet? connect_account gives the user a link to approve this assistant 
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
+registerTaskTemplateTools(server, {wrap, ok});
 registerStorageTools(server, { api, wrap, ok, fail, readOnly: cfg.readOnly, expandHome });
 registerJobResultTools(server, { api, wrap, ok, readOnly: cfg.readOnly });
 
