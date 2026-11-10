@@ -40,3 +40,32 @@ test('read-only server exposes diagnosis only; write tool has explicit consent a
  const tools=new Map();registerJobResultTools({registerTool:(n,s,f)=>tools.set(n,{s,f})},{api:{},wrap:f=>f,ok:x=>x,readOnly:true});assert.deepEqual([...tools.keys()],['diagnose_job']);
  tools.clear();registerJobResultTools({registerTool:(n,s,f)=>tools.set(n,{s,f})},{api:{},wrap:f=>f,ok:x=>x,readOnly:false});assert.equal(tools.get('save_job_output').s.annotations.idempotentHint,false);
 });
+
+test('credential aliases, JSON keys and encoded representations are refused before any storage operation',async()=>{
+ const secret='synthetic-private-value';
+ const examples=[
+  JSON.stringify({password:secret}),JSON.stringify({Authorization:`Bearer ${secret}`}),`{'token':'${secret}'}`,
+  `DB_PASSWORD=${secret}`,JSON.stringify({database_password:secret}),JSON.stringify({databasePassword:secret}),`access_token=${secret}`,`refreshToken=${secret}`,`clientSecret=${secret}`,`AWS_SECRET_ACCESS_KEY=${secret}`,
+  `Cookie: session=${secret}`,`Set-Cookie: sid=${secret}; Secure`, `Bearer ${secret}`,`Basic c3ludGhldGljOnNlY3JldA==`,
+  '{"pass\\u0077ord":"'+secret+'"}', '"{\\"password\\":\\"'+secret+'\\"}"',
+  encodeURIComponent(`password=${secret}`),encodeURIComponent(encodeURIComponent(`access_token=${secret}`)),
+  encodeURIComponent(`https://object.invalid/a?sig=${secret}`),`https://user:${secret}@object.invalid/a`,
+  `password&#61;${secret}`,`pass\u200bword=${secret}`,`pass\x1b[31mword\x1b[0m=${secret}`,
+ ];
+ for(const text of examples){
+  const f=fixture();f.api.jobLogs=async()=>({tail:text});
+  await assert.rejects(()=>saveJobOutput(f.api,f.storage,id,true),/credentials|signed URL|normalization/);
+  assert.equal(f.calls.length,0,'unsafe tail must be refused before list/download/upload');
+ }
+});
+test('safe structured logs remain byte-identical and non-secret metric names are allowed',()=>{
+ for(const value of ['{"answer":42}','https://example.invalid/results','token_count=128 api_key_count=3','{"password_strength":"strong"}','模型执行完成\nloss=0.01','request_id=ok %FF','{"text":"hello\\nworld"}'])assert.equal(checkedTail(value),value);
+});
+
+test('encoded current key, bounded normalization and output-tail fallback are checked before storage',async()=>{
+ const f=fixture();f.api.jobLogs=async()=>({});f.api.job=async()=>({id,status:'failed',output_tail:'{"DB_PASSWORD":"synthetic-private-value"}'});
+ await assert.rejects(()=>saveJobOutput(f.api,f.storage,id,true),/credentials/);assert.equal(f.calls.length,0);
+ assert.throws(()=>checkedTail([...Buffer.from('synthetic-account-key')].map(b=>'%'+b.toString(16).padStart(2,'0')).join(''),'synthetic-account-key'),/credentials/);
+ let nested='password=synthetic-private-value';for(let i=0;i<8;i++)nested=encodeURIComponent(nested);
+ assert.throws(()=>checkedTail(nested),/credentials|normalization/);
+});

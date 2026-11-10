@@ -20,5 +20,9 @@ test('actual stdio server initializes and exposes model tools without making API
     const {tools}=await client.listTools();
     for(const name of ['run_job','resolve_model_reference','prepare_model_deployment','prepare_job_rerun'])
       assert.ok(tools.some(t=>t.name===name),name);
+    const run=tools.find(t=>t.name==='run_job');
+    assert.ok(run.inputSchema.properties.outputs);
+    assert.equal(run.inputSchema.properties.outputs.properties.files.maxItems,16);
+    assert.equal(run.inputSchema.properties.outputs.properties.max_bytes.maximum,104857600);
   } finally {await client.close().catch(()=>{});await transport.close().catch(()=>{});}
 });
