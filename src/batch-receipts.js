@@ -12,10 +12,31 @@ const meta=z.object({version:z.literal(1),plan_sha256:z.string().regex(/^[a-f0-9
 const intent=z.object({version:z.literal(1),index:z.number().int().min(0).max(7),idempotency_key:key}).strict();
 const accepted=intent.extend({job_id:z.string().regex(/^job_[a-f0-9]{32}$/),status_at_acceptance:states}).strict();
 const safeError=()=>new Error('Local batch receipt is unavailable or inconsistent. No replacement key or GPU may be created; retain the original manifest and reconcile existing Jobs.');
-async function directory(p,create=false){
- try{const s=await fs.lstat(p);if(s.isSymbolicLink()||!s.isDirectory()||(s.mode&0o077)!==0||(process.getuid&&s.uid!==process.getuid()))throw safeError();}
- catch(e){if(e.code!=='ENOENT'||!create)throw e;await fs.mkdir(p,{mode:0o700}).catch(e=>{if(e.code!=='EEXIST')throw e;});return directory(p);}
+async function syncDirectory(p){
+ const f=await fs.open(p,constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW);
+ try{await f.sync();}finally{await f.close();}
 }
+// 目录项属于父目录；先同步父目录，才能在付费提交前确认新树已持久化。
+async function directory(p,create=false){
+ try{
+  const s=await fs.lstat(p);if(s.isSymbolicLink()||!s.isDirectory()||(s.mode&0o077)!==0||(process.getuid&&s.uid!==process.getuid()))throw safeError();
+ }catch(e){
+  if(e.code!=='ENOENT'||!create)throw e;
+  await fs.mkdir(p,{mode:0o700}).catch(e=>{if(e.code!=='EEXIST')throw e;});
+  await directory(p,false);
+ }
+ if(create)await syncDirectory(path.dirname(p));
+}
+async function configRoot(p){
+ try{if(!(await fs.stat(p)).isDirectory())throw safeError();}
+ catch(e){
+  if(e.code!=='ENOENT')throw e;
+  const parent=path.dirname(p);if(parent===p)throw safeError();await configRoot(parent);
+  await fs.mkdir(p,{mode:0o700}).catch(e=>{if(e.code!=='EEXIST')throw e;});
+ }
+ await syncDirectory(path.dirname(p));
+}
+
 async function read(p,schema){
  let f;try{f=await fs.open(p,constants.O_RDONLY|constants.O_NOFOLLOW);const s=await f.stat();if(!s.isFile()||s.size>8192||(s.mode&0o077)!==0||(process.getuid&&s.uid!==process.getuid()))throw safeError();return schema.parse(JSON.parse(await f.readFile('utf8')));}
  catch(e){if(e.code==='ENOENT')return null;throw safeError();}finally{await f?.close();}
@@ -38,7 +59,7 @@ export class BatchReceipts{
   if(!this.apiKey)throw Error('Connect the original scoped account before reading or submitting a batch receipt. Never paste the key into chat.');
   if(!/^[A-Za-z0-9_-]{1,80}$/.test(batchKey))throw Error('Invalid batch key');
   // 配置目录由用户选择；回执树及下级目录必须为当前用户私有，拒绝符号链接。
-  if(create)await fs.mkdir(this.root,{recursive:true,mode:0o700}).catch(()=>{throw safeError();});
+  if(create)await configRoot(path.resolve(this.root)).catch(()=>{throw safeError();});
   const base=path.join(this.root,'batch-receipts-v1');
   try{await directory(base,create);}catch(e){if(e.code==='ENOENT')return null;throw safeError();}
   const scope=path.join(base,this.scope);
