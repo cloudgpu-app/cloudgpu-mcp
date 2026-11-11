@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {registerBatchTools} from './job-batches.js';
+import {jobInputShape} from './job-input.js';
 import {registerTaskTemplateTools} from './task-templates.js';
 import {resolveModelReference} from "./model-references.js";
 // CloudGPU MCP server (stdio). Lets an AI coding assistant rent a GPU on cloudgpu.app, run a job,
@@ -33,7 +35,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.10.0";
+const VERSION = "0.11.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -52,13 +54,14 @@ function num(v, d) {
   return Number.isFinite(n) && n > 0 ? n : d;
 }
 
-const api = new CloudGpuApi({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl });
+const api = new CloudGpuApi({ apiKey: cfg.apiKey, baseUrl: cfg.baseUrl, userAgent: `cloudgpu-mcp/${VERSION}` });
 const pool = new SshPool();
 const quotes = new Quotes();
 // Instances this session touched: did we run anything, did we download anything.
 const session = new Map();
 
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) rents GPUs billed per minute from a prepaid balance.
+Batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
 Task recipes: list_task_templates and prepare_task_template return local read-only drafts, never a paid submission. Check prerequisites, quote and obtain explicit approval before run_job. Prefer local CPU processing when a GPU is unnecessary.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
 Rules: never rent without the user's yes on a quote; always set a budget and time limit (the platform shuts the instance down when either is hit); download results before stop_instance because destroying an instance erases its disk; never change passwords, SSH config, the firewall or the platform's monitoring agent on the instance; if anything fails, download what exists and stop the instance rather than leaving it running.
@@ -68,6 +71,7 @@ The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
 registerTaskTemplateTools(server, {wrap, ok});
+registerBatchTools(server,{api,cfg,wrap,ok});
 registerStorageTools(server, { api, wrap, ok, fail, readOnly: cfg.readOnly, expandHome });
 registerJobResultTools(server, { api, wrap, ok, readOnly: cfg.readOnly });
 
@@ -510,25 +514,7 @@ if (!cfg.readOnly) {
         "max_spend_usd and max_hours are enforced by the servers. Retrying with the same idempotency_key never starts a second GPU; this tool generates one if you leave it out and returns it. " +
         "The disk is erased when the job ends. When automatic_output_collection is available, declare outputs and write only those files under $CLOUDGPU_OUTPUT_DIR for persistent storage before release. Otherwise upload results yourself or print them. Storage retention and fees follow the account policy; collection consumes the same GPU budget and may fail. " +
         "Requires the user's explicit yes on the GPU, budget and time limit.",
-      inputSchema: {
-        command: z.string().min(1).max(32768).describe("bash command or script to run on the GPU"),
-        gpu_model: z.string().optional().describe("GPU model exactly as list_gpus returns it"),
-        template: z.string().optional().describe("Template id from list_templates"),
-        gpu_count: z.number().int().min(1).max(8).default(1),
-        disk_gb: z.number().int().optional().describe("Larger system disk: 100, 200 or 500; omit for the standard disk"),
-        workspace_version_id: z.string().optional().describe("Immutable Workspace version to restore before the command; requires enabled persistent storage"),
-        model_references: z.array(z.object({name:z.string(),repo_id:z.string(),revision:z.string().regex(/^[0-9a-f]{40}$/),files:z.array(z.object({path:z.string(),size_bytes:z.number().int().positive(),sha256:z.string().regex(/^[0-9a-f]{64}$/).optional()})).min(1).max(32)})).max(4).optional().describe("Pinned public model references from resolve_model_reference. Downloads into $CLOUDGPU_MODEL_DIR/<name> before the command; download time consumes the same GPU budget. No R2 cache or remote repository code execution."),
-        outputs: z.object({
-          files: z.array(z.string().min(1).max(512)).min(1).max(16),
-          max_bytes: z.number().int().min(1).max(104857600).optional(),
-          accept_storage_charges: z.boolean().optional(),
-        }).strict().optional().describe("Explicit relative output files under $CLOUDGPU_OUTPUT_DIR; no globs, symlinks, hidden or credential files. Default total limit 10 MiB, maximum 100 MiB. Only set accept_storage_charges=true after the user agrees to existing paid storage terms. Inspect output_collection after completion; the GPU is released even if saving fails."),
-        quote_id: z.string().optional().describe("Server quote from quote_compute, starting quote_; binds configuration and checks price at submission"),
-        max_spend_usd: z.number().positive().describe(`Budget for this job in USD (at most ${cfg.maxSpend})`),
-        max_hours: z.number().positive().describe(`Hard time limit in hours (at most ${cfg.maxHours})`),
-        user_confirmed: z.boolean().describe("true only if the user explicitly approved the GPU, budget and time limit"),
-        idempotency_key: z.string().max(128).optional().describe("Reuse the same value when retrying the same job"),
-      },
+      inputSchema: jobInputShape(cfg),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
     wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, outputs, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {

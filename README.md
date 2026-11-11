@@ -306,7 +306,7 @@ After completion, inspect `get_job.output_collection`: only `succeeded` confirms
 
 Version 0.8.0 still has a credential-filter gap in `save_job_output`; upgrading to 0.8.0 did not fix it. The 0.9.0 candidate rejects quoted JSON credential keys, common prefixed/aliased secret fields, authorization schemes, queried/user-info URLs and bounded common escaped representations before any storage operation. Safe logs remain byte-identical. This is a conservative recognizable-pattern check, not a guarantee that arbitrary, encrypted or unknown credentials will be detected. Save only logs you know are sanitized, with explicit user approval; no actual exposure is established by this fix.
 
-## Reusable task drafts (D16 first slice)
+## Reusable task drafts (D16)
 
 `list_task_templates` and `prepare_task_template` are local, read-only tools: no account is required, no API call is made, and preparing a draft never rents a GPU. Start with `gpu-check`, `csv-summary`, or `workspace-python`. CSV work normally belongs on your local CPU; do not rent a GPU merely to process a small CSV.
 
@@ -314,6 +314,26 @@ Version 0.8.0 still has a credential-filter gap in `save_job_output`; upgrading 
 {"template_id":"gpu-check","persist_results":false}
 ```
 
-For an existing project, pass `workspace-python`, an immutable `workspace_version_id`, and a reviewed relative `.py` entrypoint. The script runs in the restored project; prepare its dependencies yourself. Inference/training compatibility is not certified. For ComfyUI model/workflow preparation, keep using `prepare_model_deployment`; complete ComfyUI and LoRA batch recipes are not included in this slice.
+For an existing project, pass `workspace-python`, an immutable `workspace_version_id`, and a reviewed relative `.py` entrypoint. The script runs in the restored project; prepare its dependencies yourself. Inference/training compatibility is not certified. For model/workflow file preparation, `prepare_model_deployment` remains available. The experimental execution recipes below reuse a prepared environment; image/SDXL LoRA is not included.
 
 The returned `run_job_draft` deliberately omits GPU selection, quote, budget, time limit, approval and idempotency key. Request a live quote, obtain explicit approval, then call existing `run_job`. Failed tasks are not automatically retried. To preserve results, explicitly request `persist_results`; normal storage eligibility, retention, quota and fees apply. `workspace-python` also requires the exact `output_files` your script writes under `$CLOUDGPU_OUTPUT_DIR`. Storage-fee consent defaults to false and is separate from GPU approval.
+
+### Experimental application execution recipes
+
+`comfyui-workflow` runs an API-format workflow saved in an immutable Workspace against an **already prepared ComfyUI** application on GPU loopback (default port 8188). Models and custom nodes must already be available and reviewed. Supply `workflow_path`, `image_count` (1–4) and optionally `comfy_port`/`timeout_seconds`. It checks readiness, submits exactly once, polls that prompt and writes explicit `image-N.png` files plus `task-summary.json`. Lost submission responses, errors, redirects or unexpected output counts stop the task; no second prompt is submitted.
+
+`causal-lm-lora` is **small causal-language-model LoRA**, not ComfyUI/image/SDXL training. Supply `dataset_path` (JSONL with a `text` field), a pinned public `model_reference` including configuration/tokenizer/weights, and reviewed `target_modules`. Optional `steps` (1–200), `rank` (1–16), `sequence_length` and `learning_rate` bound the work. Reuse an image with compatible CUDA, torch, transformers, peft and safetensors already installed. Model loading is offline from the D13 model directory with remote model code disabled. It writes `adapter_model.safetensors`, `adapter_config.json` and `task-summary.json`.
+
+Both recipes require `persist_results=true` and an immutable Workspace. They do not install software or start servers, and preparation does not select a GPU, infer a budget, claim image compatibility or consent to storage charges. The existing Job API checks output-collection availability before accepting the request. GPU time, downloads and collection share the approved Job cap; existing storage charges are separate. Failed collection does not keep the GPU disk alive. Do not save arbitrary private logs as artifacts.
+
+**Validation boundary:** ComfyUI HTTP execution/output and LoRA orchestration have local protocol fixtures, not real GPU generation/training or quality acceptance. These recipes remain experimental. Check the selected image and model before a paid run; no universal compatibility claim is made.
+
+## Bounded batches (D17 first stage)
+
+1. Prepare each reviewed Job with a fresh `quote_compute` quote, its own GPU spending cap and time limit. Select output storage explicitly.
+2. Call `prepare_job_batch` with a caller-retained `batch_key`, `jobs` (1–8) and `total_budget_usd`. Preparation is local and read-only. The sum of per-Job maximum spending must fit the total and client cap; this is a **GPU budget**, excluding separately approved storage charges.
+3. Present all tasks, their quotes, time limits and combined cap to the user. Only after explicit approval, call `run_job_batch` with the identical input, returned `approved_plan_sha256` and `user_confirmed=true`.
+4. Retain the manifest, batch key and response receipt. Partial acceptance is possible; this is not an atomic transaction or an independent scheduler. A lost acknowledgement stops new submissions. To reconcile, replay only the **identical** approved manifest/key: existing server-side idempotency returns the original Jobs. Never invent replacement keys or silently change an expired quote. Changing a task requires a new review; an old batch key is not permission for extra spending.
+5. Poll `get_job_batch` with the explicit Job IDs. `stopping`, `needs_attention`, unknown or unavailable state requires reconciliation. Do not treat a failed status or a destroy request as independent supplier release evidence. Cancel individual Jobs only through the existing `cancel_job` tool when authorized.
+
+There are **no automatic failed-execution retries**. Each submitted Job survives a client disconnect using the existing durable backend queue. Unsubmitted members do not continue in the background if the MCP process exits. Fresh-attempt retry automation and a durable batch-level coordinator are not included. No warm GPU pool or new infrastructure is required.
