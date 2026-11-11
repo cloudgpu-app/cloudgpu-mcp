@@ -66,3 +66,14 @@ test('in-flight batch keeps the original account and endpoint after concurrent k
  const {root}=await fixture(t);let calls=0,api;const fetchImpl=async(url,opts)=>{assert.equal(url,'https://example.invalid/v1/jobs');assert.equal(opts.headers.Authorization,'Bearer original-key');calls++;api.apiKey='rotated-key';api.baseUrl='https://other.invalid';return new Response(JSON.stringify({id:id(calls),status:'queued'}),{status:200,headers:{'Content-Type':'application/json'}});};
  api=new CloudGpuApi({apiKey:'original-key',baseUrl:'https://example.invalid',fetchImpl});const store=new BatchReceipts({root,apiKey:api.apiKey,baseUrl:api.baseUrl});const r=await submitJobBatch(api,approval(input()),cfg,store);assert.equal(r.status,'submitted');assert.equal(calls,2);assert.equal((await store.snapshot('owner-review')).items.length,2);assert.match(r.not_submitted_scope,/this_invocation_only/);
 });
+test('all newly created directory parent entries are synced before the first paid request',async t=>{
+ const {root}=await fixture(t),target=path.join(root,'fresh','nested','config'),realOpen=fs.open,synced=[];
+ t.mock.method(fs,'open',async function(p,flags,...args){const h=await realOpen.call(fs,p,flags,...args);if(typeof flags==='number'&&(flags&((await import('node:fs')).constants.O_DIRECTORY))){const realSync=h.sync.bind(h);h.sync=async()=>{synced.push(String(p));return realSync();};}return h;});
+ const store=new BatchReceipts({root:target,apiKey:'key',baseUrl:'x'});let posts=0;
+ const r=await submitJobBatch({createJob:async()=>{posts++;for(const p of [root,path.join(root,'fresh'),path.join(root,'fresh','nested'),target,path.join(target,'batch-receipts-v1')])assert.ok(synced.includes(p),'missing parent sync '+p);assert.ok(synced.some(p=>path.dirname(p)===path.join(target,'batch-receipts-v1')));return {id:id(posts),status:'queued'};}},approval(input()),cfg,store);assert.equal(r.status,'submitted');assert.equal(posts,2);
+});
+test('failure to sync a new directory parent prevents any API submission',async t=>{
+ const {root}=await fixture(t),realOpen=fs.open,constants=(await import('node:fs')).constants;
+ t.mock.method(fs,'open',async function(p,flags,...args){const h=await realOpen.call(fs,p,flags,...args);if(String(p)===root&&typeof flags==='number'&&(flags&constants.O_DIRECTORY)){h.sync=async()=>{throw Error('synthetic directory fsync failure');};}return h;});
+ let calls=0;const store=new BatchReceipts({root,apiKey:'key',baseUrl:'x'});await assert.rejects(submitJobBatch({createJob:async()=>{calls++;}},approval(input()),cfg,store));assert.equal(calls,0);
+});

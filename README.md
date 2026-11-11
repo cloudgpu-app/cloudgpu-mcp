@@ -352,3 +352,5 @@ This is client-local receipt durability, not a server-side batch coordinator. Un
 Keep the exact original manifest outside the receipt store. Expired quotes for unsubmitted members may require reconciliation followed by a newly reviewed plan for the remaining work; do not overwrite the old ledger or regenerate keys merely to bypass expiry. Terminal status without final cost evidence also stops a journaled resume.
 
 One in-flight batch retains its original API credential and endpoint even if another tool connects a different account concurrently. `not_submitted` in a returned call receipt means unvisited **in that invocation only**; those entries may have accepted Jobs from an earlier call. Inspect the saved receipt and live Job IDs before deciding what remains.
+
+Use 0.12.1 or newer for directory-entry durability: newly created config/receipt directories and their parent entries are synced before paid submission. A parent-directory sync failure refuses new batch work. Existing 0.12.0 receipt records remain readable; preserve their IDs and original keys rather than deleting them. Process-exit tests alone do not constitute physical power-loss testing.
