@@ -1,16 +1,19 @@
 // 只读任务准备：不访问 API、不租 GPU、不安装依赖，也不推断预算或存储同意。
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
+import {APPLICATION_TASKS,applicationFields,prepareApplicationRecipe} from './application-recipes.js';
 
 const TASKS = [
   {id:'gpu-check',version:1,title:'Check the allocated GPU',requires_workspace:false,requirements:['Python 3','nvidia-smi'],result_files:['gpu-check.json'],description:'Report visible GPU names and total memory. No model download or benchmark.'},
   {id:'csv-summary',version:1,title:'Summarize a Workspace CSV',requires_workspace:true,requirements:['Python 3','Immutable Workspace version','UTF-8 CSV, at most 32 MiB'],result_files:['csv-summary.json'],description:'Count rows, columns and inconsistent row widths without logging cell values. Usually a CPU task; prefer local execution when a GPU is unnecessary.'},
   {id:'workspace-python',version:1,title:'Run a reviewed Workspace Python script',requires_workspace:true,requirements:['Python 3','Immutable Workspace version','User-reviewed Python entrypoint and dependencies already prepared'],result_files:[],description:'Reuse your own inference or training script. Does not install packages, supply a model, or certify application compatibility.'},
 ];
+TASKS.push(...APPLICATION_TASKS);
 const id=z.enum(TASKS.map(t=>t.id));
 const relative=z.string().min(1).max(240).regex(/^[A-Za-z0-9_][A-Za-z0-9_./-]*$/).refine(p=>p.split('/').every(s=>s && s!=='.' && s!=='..' && !s.startsWith('.')),'Use a relative path without traversal or hidden components');
 const schema=z.object({
   template_id:id,
+  ...applicationFields,
   workspace_version_id:z.string().regex(/^wsv_[0-9a-f]{32}$/).optional(),
   input_path:relative.optional(),
   entrypoint:relative.refine(p=>p.endsWith('.py'),'Entrypoint must be a Python file').optional(),
@@ -68,11 +71,13 @@ os.execv(sys.executable,[sys.executable,str(p)])
 
 export function listTaskTemplates(){
   return {preparation_only:true,starts_gpu:false,templates:structuredClone(TASKS),
-    note:'Preparation costs no GPU time. Running a Job costs money and requires a fresh quote, explicit GPU/budget/time approval and a new idempotency key. No automatic retry or dependency installation. ComfyUI workflow preparation remains available through prepare_model_deployment; these are not prevalidated ComfyUI or LoRA end-to-end recipes.'};
+    note:'Preparation costs no GPU time. Running a Job costs money and requires a fresh quote, explicit GPU/budget/time approval and a new idempotency key. No automatic retry or dependency installation. Application execution recipes are experimental, reuse prepared environments and require persistent outputs. They are not real-GPU or model-quality acceptance. Image/SDXL LoRA is not included.'};
 }
 
 export function prepareTaskTemplate(raw){
   const p=schema.parse(raw),t=TASKS.find(t=>t.id===p.template_id);
+  const application=prepareApplicationRecipe(p);if(application)return application;
+  if(Object.keys(applicationFields).some(k=>p[k]!==undefined))throw Error('Application-specific fields do not belong to this task');
   if(t.requires_workspace && !p.workspace_version_id)throw Error('Select an immutable Workspace version before preparing this task');
   if(!t.requires_workspace && p.workspace_version_id)throw Error('gpu-check does not use a Workspace');
   if(p.template_id==='csv-summary' ? !p.input_path : p.input_path!==undefined)throw Error('input_path is required only for csv-summary');

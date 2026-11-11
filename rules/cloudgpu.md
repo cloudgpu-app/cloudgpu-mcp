@@ -56,3 +56,9 @@ If anything goes wrong mid-way, do not leave the instance running. Download what
 ## Only need a model, not a GPU?
 
 The same API key works for CloudGPU's OpenAI-compatible model API at `https://cloudgpu.app/v1`. Call `list_models` to see the models. If you only need inference on a hosted model, use the API instead of renting a GPU.
+
+## Multi-Job batches
+
+Use prepare_job_batch to review all tasks and the sum of their GPU budget caps before any submission. Storage charges are separate. run_job_batch requires explicit approval and the exact plan hash. Preserve the full approved manifest, stable batch key and receipt. A partial or unknown submission never permits a replacement key: replay the identical manifest to recover original Jobs. Never automatically retry failed execution or create a replacement GPU while release is uncertain. Batch preparation is not a reservation, and accepted Jobs are independent, not an atomic transaction. Unsubmitted members do not survive a client exit.
+
+Application recipes reuse prepared environments. ComfyUI protocol fixtures and LoRA orchestration fixtures are not real GPU or model-quality acceptance. No image/SDXL LoRA recipe is supplied. Never tell a user a template is production-validated based on these fixtures, or ask for credentials in workflow files.

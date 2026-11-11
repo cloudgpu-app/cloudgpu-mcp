@@ -72,7 +72,7 @@ test('actual keyless read-only MCP prepares a task without any API connectivity'
  const client=new Client({name:'template-acceptance',version:'1.0.0'});
  try{await client.connect(transport);const {tools}=await client.listTools();
   for(const name of ['list_task_templates','prepare_task_template'])assert.equal(tools.find(t=>t.name===name)?.annotations.readOnlyHint,true);
-  const c=await client.callTool({name:'list_task_templates',arguments:{}});assert.ok(!c.isError);assert.equal(JSON.parse(c.content[0].text).templates.length,3);
+  const c=await client.callTool({name:'list_task_templates',arguments:{}});assert.ok(!c.isError);assert.equal(JSON.parse(c.content[0].text).templates.length,5);
   const p=await client.callTool({name:'prepare_task_template',arguments:{template_id:'gpu-check'}});assert.ok(!p.isError);assert.equal(JSON.parse(p.content[0].text).starts_gpu,false);
  }finally{await client.close().catch(()=>{});await transport.close().catch(()=>{});}
 });
