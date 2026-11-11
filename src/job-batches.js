@@ -1,6 +1,8 @@
 // D17第一阶段：复用现有持久化Job队列。部分提交可恢复，不伪装成原子事务。
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
+import {CloudGpuApi} from './api.js';
+import {BatchReceipts} from './batch-receipts.js';
 import {jobInputShape} from './job-input.js';
 import {checkCommand} from './guards.js';
 const sha=value=>createHash('sha256').update(value).digest('hex');
@@ -28,26 +30,36 @@ export function prepareJobBatch(raw,cfg){
   atomic:false,execution_retries:0,scope:'GPU Job spending caps only; separately approved storage charges are additional. Immutable manifest; unused GPU budget is not automatically reassigned.',
   next:'Review every command, GPU quote, time limit and storage choice. Retain this exact manifest, plan hash and batch key. Submission may partially succeed; resume the identical manifest, never invent new keys after a lost response.'};
 }
-export async function submitJobBatch(api,raw,cfg){
+export async function submitJobBatch(api,raw,cfg,receipts=null){
+ // 固定本次批量调用的凭证/端点，避免并行connect或轮换让重试跨账户。
+ if(api instanceof CloudGpuApi)api=new CloudGpuApi({apiKey:api.apiKey,baseUrl:api.baseUrl,fetchImpl:api.fetch,userAgent:api.userAgent});
  const {approved_plan_sha256,user_confirmed,...input}=raw;
  if(user_confirmed!==true)throw Error('Obtain explicit approval for all Jobs and the aggregate budget before submission');
  const plan=prepareJobBatch(input,cfg);
  if(approved_plan_sha256!==plan.plan_sha256)throw Error('The approved batch manifest changed; review it again before submitting');
+ const journal=receipts?await receipts.bind(plan):null;
  const results=[];
  for(const item of plan.items){
+  let known;
+  if(journal){
+   try{known=await journal.accepted(item.index);if(!known)await journal.intent(item);}
+   catch{return receipt('receipt_unavailable',results,item.index);}
+  }
   try{
-   const job=await api.createJob(item.body,item.idempotency_key);
+   const job=known?await api.job(known.job_id):await api.createJob(item.body,item.idempotency_key);
+   if(known&&job?.id!==known.job_id)throw Error('Mismatched recorded Job');
    if(!job||!/^job_[a-f0-9]{32}$/.test(job.id)||!['queued','provisioning','running','stopping','needs_attention','succeeded','failed','cancelled'].includes(job.status))throw Error('Invalid submission response');
    results.push({index:item.index,idempotency_key:item.idempotency_key,job_id:job.id,status:job.status});
-   if(job.status==='needs_attention'||job.status==='stopping')return receipt('reconciliation_required',results,item.index+1);
+   if(journal&&!known){try{await journal.accept(item,job);}catch{return receipt('receipt_persistence_failed',results,item.index+1);}}
+   if(job.status==='needs_attention'||job.status==='stopping'||(journal&&['succeeded','failed','cancelled'].includes(job.status)&&job.cost_status!=='final'))return receipt('reconciliation_required',results,item.index+1);
   }catch{
    // Even a server error may follow an accepted create. Never turn uncertainty into another GPU.
-   results.push({index:item.index,idempotency_key:item.idempotency_key,job_id:null,status:'submission_uncertain'});
+   results.push({index:item.index,idempotency_key:item.idempotency_key,job_id:known?.job_id??null,status:known?'status_unavailable':'submission_uncertain'});
    return receipt('submission_stopped',results,item.index+1);
   }
  }
  return receipt('submitted',results,plan.items.length);
- function receipt(status,items,next){return {batch_key:plan.batch_key,plan_sha256:plan.plan_sha256,status,atomic:false,total_budget_usd:plan.total_budget_usd,items,not_submitted:plan.items.slice(next).map(i=>({index:i.index,idempotency_key:i.idempotency_key})),execution_retries:0,next:status==='submitted'?'Poll get_job_batch. A failed command is not automatically retried.':'Reconcile or replay only the identical approved manifest with the same batch key. No automatic new-attempt retry or cancellation was performed.'};}
+ function receipt(status,items,next){return {batch_key:plan.batch_key,plan_sha256:plan.plan_sha256,status,atomic:false,total_budget_usd:plan.total_budget_usd,items,not_submitted_scope:'this_invocation_only; entries may already exist from an earlier invocation',not_submitted:plan.items.slice(next).map(i=>({index:i.index,idempotency_key:i.idempotency_key})),execution_retries:0,local_receipts_enabled:!!journal,next:status==='submitted'?'Poll get_job_batch. A failed command is not automatically retried.':'Reconcile or replay only the identical approved manifest with the same batch key. No automatic new-attempt retry or cancellation was performed.'};}
 }
 export async function getJobBatch(api,ids){
  z.array(z.string().regex(/^job_[a-f0-9]{32}$/)).min(1).max(8).parse(ids);
@@ -58,8 +70,10 @@ export async function getJobBatch(api,ids){
 }
 export function registerBatchTools(server,{api,cfg,wrap,ok}){
  const input=schema(cfg);
+ const receipts=()=>new BatchReceipts({apiKey:'apiKey' in api?api.apiKey:cfg.apiKey,baseUrl:api.baseUrl||cfg.baseUrl});
+ server.registerTool('get_job_batch_receipt',{title:'Read a private local batch receipt',description:'Read only saved accepted Job IDs and uncertain submission intents for the original batch key, API key and endpoint. No API request or GPU creation. Local state is historical, not live release evidence; a missing entry does not prove non-creation. Commands, tokens and signed URLs are never stored.',inputSchema:{batch_key:z.string().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/)},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},wrap(async({batch_key})=>ok(await receipts().snapshot(batch_key))));
  server.registerTool('prepare_job_batch',{title:'Review a bounded Job batch',description:'Local, read-only preparation for up to eight Jobs with fresh per-Job quotes and one aggregate cap. No API requests, reservations, installations or automatic execution retries. Retain the immutable plan hash and batch key.',inputSchema:input.shape,annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false}},wrap(async p=>ok(prepareJobBatch(p,cfg))));
  server.registerTool('get_job_batch',{title:'Inspect a Job batch',description:'Read-only status and cost summary for explicit Job IDs. Does not retry, cancel, create or claim independent supplier release verification.',inputSchema:{job_ids:z.array(z.string().regex(/^job_[a-f0-9]{32}$/)).min(1).max(8)},annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:true}},wrap(async({job_ids})=>ok(await getJobBatch(api,job_ids))));
  if(cfg.readOnly)return;
- server.registerTool('run_job_batch',{title:'Submit an approved bounded Job batch',description:'Paid: submit an explicitly approved immutable manifest using existing durable Jobs, each with a quote, budget and deadline. Aggregate worst-case budget is capped. Partial success is possible. On lost responses replay the IDENTICAL manifest/key; never create replacement GPUs or retry failed execution automatically. Persist the returned receipt. No transaction rollback or independent batch scheduler.',inputSchema:{...input.shape,approved_plan_sha256:z.string().regex(/^[a-f0-9]{64}$/),user_confirmed:z.boolean()},annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:true}},wrap(async p=>ok(await submitJobBatch(api,p,cfg))));
+ server.registerTool('run_job_batch',{title:'Submit an approved bounded Job batch',description:'Paid: submit an explicitly approved immutable manifest using existing durable Jobs, each with a quote, budget and deadline. Aggregate worst-case budget is capped. Partial success is possible. On lost responses replay the IDENTICAL manifest/key; never create replacement GPUs or retry failed execution automatically. Persist the returned receipt. No transaction rollback or independent batch scheduler.',inputSchema:{...input.shape,approved_plan_sha256:z.string().regex(/^[a-f0-9]{64}$/),user_confirmed:z.boolean()},annotations:{readOnlyHint:false,destructiveHint:true,idempotentHint:true,openWorldHint:true}},wrap(async p=>ok(await submitJobBatch(api,p,cfg,receipts()))));
 }

@@ -337,3 +337,18 @@ Both recipes require `persist_results=true` and an immutable Workspace. They do 
 5. Poll `get_job_batch` with the explicit Job IDs. `stopping`, `needs_attention`, unknown or unavailable state requires reconciliation. Do not treat a failed status or a destroy request as independent supplier release evidence. Cancel individual Jobs only through the existing `cancel_job` tool when authorized.
 
 There are **no automatic failed-execution retries**. Each submitted Job survives a client disconnect using the existing durable backend queue. Unsubmitted members do not continue in the background if the MCP process exits. Fresh-attempt retry automation and a durable batch-level coordinator are not included. No warm GPU pool or new infrastructure is required.
+
+
+### Private local batch receipts (0.12.0)
+
+`run_job_batch` now journals submission intents and accepted Job IDs under `CLOUDGPU_CONFIG_DIR` (default `~/.config/cloudgpu`), in a private `batch-receipts-v1` directory. `get_job_batch_receipt({batch_key})` reads this local metadata without an API request. It records no commands, complete manifests, API keys, model URLs or signed links. Keep your original reviewed manifest separately.
+
+After a client restart, reconnect with the **same scoped API key and endpoint**. Inspect the receipt, then use `get_job_batch` for live status. Replaying the exact approved manifest queries known accepted Jobs; only an uncertain acknowledgement is reconciled by the original create request/key. Unavailable, `stopping` or `needs_attention` stops progress. A local historical status is not a current supplier release audit. A missing receipt (another device/key, an older client, or lost files) is never proof that no GPU exists.
+
+The local store must support private file permissions, no-follow file opens and atomic hard links. An unsafe/unavailable store refuses new batch submissions; a write failure after acceptance returns the known Job ID and stops later members. Do not silently switch to a new key or discard uncertain records. New entries are refused once 1,024 batch directories are observed for a key/endpoint; this local housekeeping check is not a concurrent server quota. Archive **verified terminal** receipts explicitly. Original single-Job tools remain available.
+
+This is client-local receipt durability, not a server-side batch coordinator. Unsubmitted members do not run while the client is closed. No automatic retry of failed execution, new-attempt spending, refund or cancellation is added. Preparing a plan still creates no GPU and requires no account; paid submission still requires exact plan approval, fresh quotes and existing GPU/storage limits. Scopes on different keys or endpoints are separate; inspect existing resources before intentionally changing either.
+
+Keep the exact original manifest outside the receipt store. Expired quotes for unsubmitted members may require reconciliation followed by a newly reviewed plan for the remaining work; do not overwrite the old ledger or regenerate keys merely to bypass expiry. Terminal status without final cost evidence also stops a journaled resume.
+
+One in-flight batch retains its original API credential and endpoint even if another tool connects a different account concurrently. `not_submitted` in a returned call receipt means unvisited **in that invocation only**; those entries may have accepted Jobs from an earlier call. Inspect the saved receipt and live Job IDs before deciding what remains.
