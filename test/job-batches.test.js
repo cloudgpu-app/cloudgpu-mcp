@@ -4,6 +4,9 @@ import {prepareJobBatch,submitJobBatch,getJobBatch} from '../src/job-batches.js'
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 import http from 'node:http';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 const cfg={maxSpend:10,maxHours:2};
 const job=(n=1)=>({command:'printf done',quote_id:'quote_'+String(n).repeat(32),max_spend_usd:1,max_hours:0.5});
 const input=()=>({batch_key:'reviewed-batch',total_budget_usd:3,jobs:[job(1),job(2),job(3)]});
@@ -48,14 +51,22 @@ test('actual MCP to local REST preserves submission keys after a lost response a
   if(j){res.setHeader('Content-Type','application/json');res.end(JSON.stringify({...j,cost_usd:0,cost_status:'accruing'}));return;}
   res.writeHead(404);res.end('{}');
  });await new Promise(r=>server.listen(0,'127.0.0.1',r));
- const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_API_KEY:'synthetic-batch-test',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});transport.stderr?.on('data',()=>{});const client=new Client({name:'batch-rest-test',version:'1'});
+ const receiptDir=await fs.mkdtemp(path.join(os.tmpdir(),'cgpu-batch-'));
+ const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_CONFIG_DIR:receiptDir,CLOUDGPU_API_KEY:'synthetic-batch-test',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});transport.stderr?.on('data',()=>{});const client=new Client({name:'batch-rest-test',version:'1'});
  try{
   await client.connect(transport);const call=async(name,args)=>{const r=await client.callTool({name,arguments:args});assert.ok(!r.isError,r.content[0].text);return JSON.parse(r.content[0].text);};
   const p=input();const plan=await call('prepare_job_batch',p);const request={...p,user_confirmed:true,approved_plan_sha256:plan.plan_sha256};
   const first=await call('run_job_batch',request);assert.equal(first.status,'submitted');assert.equal(resources,3);assert.equal(posts,4);
-  const replay=await call('run_job_batch',request);assert.deepEqual(replay.items,first.items);assert.equal(resources,3);assert.equal(posts,7);
+  const replay=await call('run_job_batch',request);assert.deepEqual(replay.items,first.items);assert.equal(resources,3);assert.equal(posts,4);
   const state=await call('get_job_batch',{job_ids:first.items.map(i=>i.job_id)});assert.equal(state.all_terminal,false);assert.equal(state.requires_reconciliation,false);assert.equal(state.automatic_retry_allowed,false);
- }finally{await client.close().catch(()=>{});await transport.close().catch(()=>{});server.closeAllConnections();await new Promise(r=>server.close(r));}
+  await client.close();await transport.close();
+  const restartedTransport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_CONFIG_DIR:receiptDir,CLOUDGPU_API_KEY:'synthetic-batch-test',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});restartedTransport.stderr?.on('data',()=>{});
+  const restarted=new Client({name:'batch-after-process-exit',version:'1'});
+  try{await restarted.connect(restartedTransport);const saved=await restarted.callTool({name:'get_job_batch_receipt',arguments:{batch_key:p.batch_key}});const local=JSON.parse(saved.content[0].text);assert.equal(local.found,true);assert.deepEqual(local.items.map(x=>x.job_id),first.items.map(x=>x.job_id));
+   const resumed=await restarted.callTool({name:'run_job_batch',arguments:request});assert.ok(!resumed.isError,resumed.content[0].text);assert.equal(JSON.parse(resumed.content[0].text).status,'submitted');assert.equal(posts,4);assert.equal(resources,3);
+  }finally{await restarted.close().catch(()=>{});await restartedTransport.close().catch(()=>{});}
+
+ }finally{await client.close().catch(()=>{});await transport.close().catch(()=>{});server.closeAllConnections();await new Promise(r=>server.close(r));await fs.rm(receiptDir,{recursive:true,force:true});}
 });
 test('batch status never equates missing or unfamiliar state with release, success or a retry',async()=>{
  const api={job:async key=>key===id(1)?{id:key,status:'failed',cost_usd:0.1,cost_status:'final'}:key===id(2)?{id:key,status:'needs_attention'}:{id:key,status:'unknown'}};
