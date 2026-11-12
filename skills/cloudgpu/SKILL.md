@@ -83,4 +83,4 @@ If no `cloudgpu` tools are available, the MCP server needs to be set up first:
 - Environment variable: `CLOUDGPU_API_KEY`, with a key created at https://cloudgpu.app.
 - Never paste the key into the chat or into files in the project. Ask the user to put it in their MCP client's configuration or environment themselves.
 
-See the [README](https://github.com/mrhy7176/cloudgpu-mcp#install) for per-client setup.
+See the [README](https://github.com/cloudgpu-app/cloudgpu-mcp#install) for per-client setup.

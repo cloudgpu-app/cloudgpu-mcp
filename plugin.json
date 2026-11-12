@@ -9,7 +9,7 @@
     "url": "https://cloudgpu.app"
   },
   "homepage": "https://cloudgpu.app/docs/mcp",
-  "repository": "https://github.com/mrhy7176/cloudgpu-mcp",
+  "repository": "https://github.com/cloudgpu-app/cloudgpu-mcp",
   "license": "MIT",
   "keywords": ["mcp", "gpu", "cloud-gpu", "ai-agent"],
   "extensions": {
