@@ -1,7 +1,7 @@
 # Claude Code GitHub Action：在 issue / PR 里 @claude 时让 Claude 干活。
 # 文档：https://code.claude.com/docs/en/github-actions
 #
-# 只认仓库所有者 mrhy7176：外人在公开 issue 里 @claude 不会启动 runner，也不会消耗额度。
+# 只认仓库所有者 cloudgpuapp：外人在公开 issue 里 @claude 不会启动 runner，也不会消耗额度。
 # 凭证放在仓库 Secrets 里，二选一：
 #   ANTHROPIC_API_KEY        —— Claude Console 的 API key（按 token 计费）
 #   CLAUDE_CODE_OAUTH_TOKEN  —— 本地 `claude setup-token` 生成的订阅令牌（走订阅额度）
@@ -27,7 +27,7 @@ on:
 jobs:
   claude:
     if: |
-      github.actor == 'mrhy7176' && (
+      github.actor == 'cloudgpuapp' && (
         (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
         (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude')) ||
@@ -64,7 +64,7 @@ jobs:
             --max-turns 30
             --allowedTools "Bash(gh pr create:*),Bash(gh pr merge:*),Bash(gh pr view:*),Bash(gh pr checks:*),Bash(gh pr list:*),Bash(gh issue view:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git branch:*),Bash(npm ci:*),Bash(npm install:*),Bash(npm test:*),Bash(npm run:*),Bash(npx tsc:*),Bash(pip install:*),Bash(pytest:*),Bash(python3 -m pytest:*),Bash(python -m pytest:*),Bash(mvn:*)"
             --disallowedTools "Bash(git push:*),Bash(git reset:*),Bash(git rebase:*),Bash(gh api:*),Bash(gh secret:*),Bash(gh workflow:*),Bash(gh repo:*)"
-            --append-system-prompt "仓库所有者 mrhy7176 的额外规则（优先于默认说明）。一：被要求改代码时，只在本次运行给你的 claude/ 分支上提交，并且只用系统提供的 git-push 包装脚本推送这个分支；绝不 force push，绝不直接推送或提交到默认分支 main，绝不修改 .github/workflows 目录下的任何文件，绝不读取、打印或改动 secrets 和任何凭证。二：推送前，如果仓库有现成的测试或构建命令（package.json 里的 test、build、lint 脚本，pytest，mvn test 等），先跑；失败就修，修不好就不要合并，在评论里说明原因。三：在 issue 里改完并推送后，你被明确授权自己开 PR 并合并，这一条覆盖默认说明里只给 Create a PR 链接、不能合并分支的限制：先用 gh pr create --base main --head 你的分支 --title 简短标题 --body 改动说明，正文里必须写 Closes #issue号；再用 gh pr checks PR号 --watch 等检查跑完（报 no checks 说明仓库没有检查，可以直接继续）；检查全部通过后用 gh pr merge PR号 --squash --delete-branch 合并。四：最后在你的进度评论里写上 PR 链接和合并结果（已合并，或未合并及原因）。五：只是提问、没有改代码时，正常回答，不要开 PR。六：在已有 PR 上被 @ 时，把提交推到该 PR 的分支即可，不要另开 PR；只有分支名以 claude/issue- 或 claude/pr- 开头的 PR 才可以由你合并。"
+            --append-system-prompt "仓库所有者 cloudgpuapp 的额外规则（优先于默认说明）。一：被要求改代码时，只在本次运行给你的 claude/ 分支上提交，并且只用系统提供的 git-push 包装脚本推送这个分支；绝不 force push，绝不直接推送或提交到默认分支 main，绝不修改 .github/workflows 目录下的任何文件，绝不读取、打印或改动 secrets 和任何凭证。二：推送前，如果仓库有现成的测试或构建命令（package.json 里的 test、build、lint 脚本，pytest，mvn test 等），先跑；失败就修，修不好就不要合并，在评论里说明原因。三：在 issue 里改完并推送后，你被明确授权自己开 PR 并合并，这一条覆盖默认说明里只给 Create a PR 链接、不能合并分支的限制：先用 gh pr create --base main --head 你的分支 --title 简短标题 --body 改动说明，正文里必须写 Closes #issue号；再用 gh pr checks PR号 --watch 等检查跑完（报 no checks 说明仓库没有检查，可以直接继续）；检查全部通过后用 gh pr merge PR号 --squash --delete-branch 合并。四：最后在你的进度评论里写上 PR 链接和合并结果（已合并，或未合并及原因）。五：只是提问、没有改代码时，正常回答，不要开 PR。六：在已有 PR 上被 @ 时，把提交推到该 PR 的分支即可，不要另开 PR；只有分支名以 claude/issue- 或 claude/pr- 开头的 PR 才可以由你合并。"
 
   # 兜底：issue 里触发、Claude 推了分支但可能没开 PR / 没合并时，交给 claude-automerge.yml。
   # 用 GITHUB_TOKEN 触发 workflow_dispatch 是允许的（GITHUB_TOKEN 只有 dispatch 类事件能触发新的 workflow）。

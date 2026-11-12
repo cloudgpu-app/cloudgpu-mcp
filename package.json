@@ -42,10 +42,10 @@
   "homepage": "https://cloudgpu.app/docs/mcp",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrhy7176/cloudgpu-mcp.git"
+    "url": "git+https://github.com/cloudgpu-app/cloudgpu-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/mrhy7176/cloudgpu-mcp/issues"
+    "url": "https://github.com/cloudgpu-app/cloudgpu-mcp/issues"
   },
   "license": "MIT",
   "author": "CloudGPU <support@cloudgpu.app>",
