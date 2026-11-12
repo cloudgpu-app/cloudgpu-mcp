@@ -25,7 +25,7 @@ For another stdio client, use `command: "npx"` and `args: ["-y", "cloudgpu-mcp"]
 <summary><b>Claude Code</b></summary>
 
 ```bash
-claude mcp add cloudgpu --env CLOUDGPU_API_KEY=cgw-sk-... -- npx -y cloudgpu-mcp
+claude mcp add cloudgpu --env CLOUDGPU_API_KEY='<YOUR_API_KEY>' -- npx -y cloudgpu-mcp
 ```
 </details>
 
@@ -38,7 +38,7 @@ claude mcp add cloudgpu --env CLOUDGPU_API_KEY=cgw-sk-... -- npx -y cloudgpu-mcp
     "cloudgpu": {
       "command": "npx",
       "args": ["-y", "cloudgpu-mcp"],
-      "env": { "CLOUDGPU_API_KEY": "cgw-sk-..." }
+      "env": { "CLOUDGPU_API_KEY": "<YOUR_API_KEY>" }
     }
   }
 }
@@ -54,7 +54,7 @@ claude mcp add cloudgpu --env CLOUDGPU_API_KEY=cgw-sk-... -- npx -y cloudgpu-mcp
     "cloudgpu": {
       "command": "npx",
       "args": ["-y", "cloudgpu-mcp"],
-      "env": { "CLOUDGPU_API_KEY": "cgw-sk-..." }
+      "env": { "CLOUDGPU_API_KEY": "<YOUR_API_KEY>" }
     }
   }
 }
@@ -71,7 +71,7 @@ claude mcp add cloudgpu --env CLOUDGPU_API_KEY=cgw-sk-... -- npx -y cloudgpu-mcp
     "cloudgpu": {
       "type": "local",
       "command": ["npx", "-y", "cloudgpu-mcp"],
-      "environment": { "CLOUDGPU_API_KEY": "cgw-sk-..." },
+      "environment": { "CLOUDGPU_API_KEY": "<YOUR_API_KEY>" },
       "enabled": true
     }
   }
@@ -90,7 +90,7 @@ extensions:
     cmd: npx
     args: ["-y", "cloudgpu-mcp"]
     envs:
-      CLOUDGPU_API_KEY: "cgw-sk-..."
+      CLOUDGPU_API_KEY: "<YOUR_API_KEY>"
     enabled: true
     timeout: 300
 ```

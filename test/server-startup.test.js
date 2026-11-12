@@ -12,7 +12,7 @@ test('MCP executable starts and reports its version', () => {
 
 test('actual stdio server initializes and exposes model tools without making API calls',async () => {
   const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],
-    env:{...process.env,CLOUDGPU_API_KEY:'synthetic-startup-key',CLOUDGPU_BASE_URL:'http://127.0.0.1:1',CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});
+    env:{...process.env,CLOUDGPU_API_KEY:'example-startup-key',CLOUDGPU_BASE_URL:'http://127.0.0.1:1',CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});
   transport.stderr?.on('data',()=>{});
   const client=new Client({name:'startup-regression',version:'1.0.0'});
   try {

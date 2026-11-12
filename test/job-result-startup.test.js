@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {Client} from '@modelcontextprotocol/sdk/client/index.js';
 import {StdioClientTransport} from '@modelcontextprotocol/sdk/client/stdio.js';
 test('actual MCP stdio exposes diagnosis and output saving without contacting the API',async()=>{
- const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_API_KEY:'synthetic-key',CLOUDGPU_BASE_URL:'http://127.0.0.1:1',CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});transport.stderr?.on('data',()=>{});
+ const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_API_KEY:'example-key',CLOUDGPU_BASE_URL:'http://127.0.0.1:1',CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});transport.stderr?.on('data',()=>{});
  const client=new Client({name:'job-result-startup',version:'1.0.0'});
  try{await client.connect(transport);const r=await client.listTools();for(const name of ['diagnose_job','save_job_output'])assert.ok(r.tools.some(x=>x.name===name));}
  finally{await client.close().catch(()=>{});await transport.close().catch(()=>{});}

@@ -81,7 +81,7 @@ const TEMPLATES = {
     { id: "big-llm", name: "Big LLM", category: "llm", recommended_gpu: "A100 80GB", min_gpu_count: 1, estimated_vram_gb: 60, has_api_endpoint: false },
   ],
 };
-const SSH = { host: "10.9.8.7", port: 2222, user: "root", password: "s3cret-pw" };
+const SSH = { host: "10.9.8.7", port: 2222, user: "root", password: "example-password" };
 
 function inst(over = {}) {
   return { object: "gpu.instance", id: "inst_1", gpu_model: "RTX 4090", gpu_count: 1, template: "comfyui", status: "creating",
@@ -175,45 +175,45 @@ test("help and version", async () => {
 test("login verifies the key, saves it with 0600 perms, and env wins over it", async () => {
   const api = await mockApi({
     "GET /v1/gpu/account": (req) =>
-      req.headers.authorization === "Bearer cgw-sk-bad"
+      req.headers.authorization === "Bearer example-bad-key"
         ? { status: 401, body: { error: { code: "invalid_api_key", message: "Invalid API key." } } }
         : { body: { object: "account", balance_usd: 12.5, max_running_instances: 2, running_instances: 0 } },
   });
   try {
     const home = tmpHome();
     const env = { HOME: home, CLOUDGPU_BASE_URL: api.url };
-    const stdin = Readable.from(["cgw-sk-good\n"]);
+    const stdin = Readable.from(["example-good-key\n"]);
     const r = await cli(["login"], { env, stdin });
     assert.equal(r.code, 0, r.err);
     const file = configPath(env);
     assert.equal(file, path.join(home, ".config", "cloudgpu", "config.json"));
     assert.equal(fs.statSync(file).mode & 0o777, 0o600);
     assert.equal(fs.statSync(path.dirname(file)).mode & 0o777, 0o700);
-    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).api_key, "cgw-sk-good");
-    assert.equal(api.requests.at(-1).headers.authorization, "Bearer cgw-sk-good");
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).api_key, "example-good-key");
+    assert.equal(api.requests.at(-1).headers.authorization, "Bearer example-good-key");
     assert.match(api.requests.at(-1).headers["user-agent"], /^cloudgpu-cli\//);
 
     // 已有文件的权限被放宽过，再次 login 要收紧回 0600
     fs.chmodSync(file, 0o644);
-    assert.equal((await cli(["login", "--no-verify"], { env, stdin: Readable.from(["cgw-sk-other"]) })).code, 0);
+    assert.equal((await cli(["login", "--no-verify"], { env, stdin: Readable.from(["example-other-key"]) })).code, 0);
     assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).api_key, "cgw-sk-other");
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).api_key, "example-other-key");
 
     // 保存的 key 会被后续命令使用
     assert.equal((await cli(["balance"], { env })).code, 0);
-    assert.equal(api.requests.at(-1).headers.authorization, "Bearer cgw-sk-other");
+    assert.equal(api.requests.at(-1).headers.authorization, "Bearer example-other-key");
 
     // 环境变量优先
-    assert.equal((await cli(["balance"], { env: { ...env, CLOUDGPU_API_KEY: "cgw-sk-env" } })).code, 0);
-    assert.equal(api.requests.at(-1).headers.authorization, "Bearer cgw-sk-env");
+    assert.equal((await cli(["balance"], { env: { ...env, CLOUDGPU_API_KEY: "example-env-key" } })).code, 0);
+    assert.equal(api.requests.at(-1).headers.authorization, "Bearer example-env-key");
 
     // 错误的 key：不保存，显示 API 的 message，不回显 key
-    const bad = await cli(["login"], { env, stdin: Readable.from(["cgw-sk-bad\n"]) });
+    const bad = await cli(["login"], { env, stdin: Readable.from(["example-bad-key\n"]) });
     assert.equal(bad.code, 1);
     assert.match(bad.err, /Invalid API key\./);
     assert.match(bad.err, /not saved/);
-    assert.ok(!bad.err.includes("cgw-sk-bad"));
-    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).api_key, "cgw-sk-other");
+    assert.ok(!bad.err.includes("example-bad-key"));
+    assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).api_key, "example-other-key");
 
     // 空输入是用法错误
     assert.equal((await cli(["login"], { env, stdin: Readable.from([""]) })).code, 2);
@@ -239,13 +239,13 @@ test("offers, templates, ls, status and balance: tables and --json", async () =>
     "GET /v1/gpu/instances/inst_1": { body: inst({ status: "running", ssh: SSH, api_url: "https://inst-1.example.test" }) },
     "GET /v1/gpu/account": { body: { object: "account", balance_usd: 12.5, max_running_instances: 2, running_instances: 1, top_up_url: "https://cloudgpu.app/billing" } },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-key", CLOUDGPU_BASE_URL: api.url };
   try {
     let r = await cli(["offers"], { env });
     assert.equal(r.code, 0, r.err);
     assert.match(r.out, /^GPU\s+VRAM\s+PER GPU-HOUR\s+AVAILABLE/);
     assert.match(r.out, /RTX 4090\s+24 GB\s+\$0\.123\s+ok/);
-    assert.equal(api.requests.at(-1).headers.authorization, "Bearer cgw-sk-test");
+    assert.equal(api.requests.at(-1).headers.authorization, "Bearer example-test-key");
 
     r = await cli(["offers", "--json"], { env });
     assert.deepEqual(JSON.parse(r.out), OFFERS.data);
@@ -268,16 +268,16 @@ test("offers, templates, ls, status and balance: tables and --json", async () =>
     assert.equal(list[0].id, "inst_1");
     assert.equal(list[0].ssh.password, undefined); // --json 默认不带密码
     assert.equal(list[0].ssh.password_hidden, true);
-    assert.ok(!r.out.includes("s3cret-pw"));
+    assert.ok(!r.out.includes("example-password"));
 
     r = await cli(["status", "inst_1"], { env });
     assert.match(r.out, /SSH\s+ssh -p 2222 root@10\.9\.8\.7/);
     assert.match(r.out, /URL\s+https:\/\/inst-1\.example\.test/);
-    assert.ok(!r.out.includes("s3cret-pw"));
+    assert.ok(!r.out.includes("example-password"));
     r = await cli(["status", "inst_1", "--show-password"], { env });
-    assert.match(r.out, /Password\s+s3cret-pw/);
+    assert.match(r.out, /Password\s+example-password/);
     r = await cli(["status", "inst_1", "--json", "--show-password"], { env });
-    assert.equal(JSON.parse(r.out).ssh.password, "s3cret-pw");
+    assert.equal(JSON.parse(r.out).ssh.password, "example-password");
 
     r = await cli(["balance"], { env });
     assert.match(r.out, /Balance\s+\$12\.50/);
@@ -297,7 +297,7 @@ test("up --wait polls until running and prints SSH and URLs", async () => {
     "GET /v1/gpu/instances/inst_1": (_req, _b, n) =>
       n < 3 ? { body: inst() } : { body: inst({ status: "running", ssh: SSH, api_url: "https://inst-1.example.test", running_minutes: 0 }) },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-key", CLOUDGPU_BASE_URL: api.url };
   let sleeps = 0;
   try {
     const r = await cli(
@@ -314,7 +314,7 @@ test("up --wait polls until running and prints SSH and URLs", async () => {
     assert.match(r.out, /ssh -p 2222 root@10\.9\.8\.7/);
     assert.match(r.out, /https:\/\/inst-1\.example\.test/);
     assert.match(r.out, /cloudgpu down inst_1/);
-    assert.ok(!r.out.includes("s3cret-pw"));
+    assert.ok(!r.out.includes("example-password"));
     assert.match(r.err, /inst_1: running/);
   } finally {
     await api.close();
@@ -328,7 +328,7 @@ test("up --wait exits 1 with the failure reason when the instance fails", async 
     "GET /v1/gpu/instances/inst_1": (_req, _b, n) =>
       n < 2 ? { status: 503, body: { error: { message: "busy" } } } : { body: inst({ status: "failed", failure_reason: "No machine could start it." }) },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-key", CLOUDGPU_BASE_URL: api.url };
   try {
     const r = await cli(["up", "--gpu", "RTX 4090", "--wait", "--json"], { env });
     assert.equal(r.code, 1);
@@ -344,7 +344,7 @@ test("up without --wait prints the id; unknown GPU is rejected before creating",
     "GET /v1/gpu/offers": { body: OFFERS },
     "POST /v1/gpu/instances": { status: 201, body: inst() },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-key", CLOUDGPU_BASE_URL: api.url };
   try {
     let r = await cli(["up", "--gpu", "RTX 4090"], { env });
     assert.equal(r.code, 0, r.err);
@@ -367,7 +367,7 @@ test("API errors show error.message, the HTTP status and code, and exit non-zero
     "GET /v1/gpu/account": { status: 401, body: { error: { code: "invalid_api_key", message: "Invalid API key." } } },
     "GET /v1/gpu/templates": { status: 200, body: "<html>oops</html>" },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test-secret", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-secret", CLOUDGPU_BASE_URL: api.url };
   try {
     let r = await cli(["up", "--gpu", "RTX 4090"], { env });
     assert.equal(r.code, 1);
@@ -378,7 +378,7 @@ test("API errors show error.message, the HTTP status and code, and exit non-zero
     assert.equal(r.code, 1);
     assert.match(r.err, /Invalid API key\. \(HTTP 401, invalid_api_key\)/);
     assert.match(r.err, /cloudgpu login/);
-    assert.ok(!r.err.includes("cgw-sk-test-secret"));
+    assert.ok(!r.err.includes("example-test-secret"));
 
     r = await cli(["status", "inst_x"], { env });
     assert.equal(r.code, 1);
@@ -405,7 +405,7 @@ test("down asks for confirmation, honours --yes, and treats already-stopped as d
     "GET /v1/gpu/instances/inst_2": { body: inst({ id: "inst_2", status: "stopped", cost_usd: 0.2, limits: { stopped_by: "idle" } }) },
     "DELETE /v1/gpu/instances/inst_3": { status: 409, body: { error: { code: "instance_provisioning", message: "Instance is still being created." } } },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-key", CLOUDGPU_BASE_URL: api.url };
   try {
     let r = await cli(["down", "inst_1"], { env });
     assert.equal(r.code, 2);
@@ -446,7 +446,7 @@ test("ssh runs the system ssh with host, port and user; password only with --sho
     "GET /v1/gpu/instances/inst_1": { body: inst({ status: "running", ssh: SSH }) },
     "GET /v1/gpu/instances/inst_2": { body: inst({ id: "inst_2", status: "creating" }) },
   });
-  const env = { CLOUDGPU_API_KEY: "cgw-sk-test", CLOUDGPU_BASE_URL: api.url };
+  const env = { CLOUDGPU_API_KEY: "example-test-key", CLOUDGPU_BASE_URL: api.url };
   try {
     let f = fakeSpawn(0);
     let r = await cli(["ssh", "inst_1", "--", "nvidia-smi"], { env, spawn: f.spawn });
@@ -454,13 +454,13 @@ test("ssh runs the system ssh with host, port and user; password only with --sho
     assert.equal(f.calls[0].cmd, "ssh");
     assert.deepEqual(f.calls[0].args, ["-p", "2222", "root@10.9.8.7", "nvidia-smi"]);
     assert.equal(f.calls[0].opts.stdio, "inherit");
-    assert.ok(!r.err.includes("s3cret-pw"));
+    assert.ok(!r.err.includes("example-password"));
     assert.match(r.err, /--show-password/);
 
     f = fakeSpawn(255);
     r = await cli(["ssh", "inst_1", "--show-password"], { env, spawn: f.spawn });
     assert.equal(r.code, 255); // 透传 ssh 的退出码
-    assert.match(r.err, /Password: s3cret-pw/);
+    assert.match(r.err, /Password: example-password/);
 
     f = fakeSpawn(0);
     r = await cli(["ssh", "inst_2"], { env, spawn: f.spawn });
@@ -487,15 +487,15 @@ test("bin: --version, --json output and exit codes", async () => {
   assert.equal((await runBin(["--version"])).out.trim(), PKG.version);
   const api = await mockApi({
     "GET /v1/gpu/account": (req) =>
-      req.headers.authorization === "Bearer cgw-sk-good"
+      req.headers.authorization === "Bearer example-good-key"
         ? { body: { object: "account", balance_usd: 3 } }
         : { status: 401, body: { error: { code: "invalid_api_key", message: "Invalid API key." } } },
   });
   try {
-    let r = await runBin(["balance", "--json"], { CLOUDGPU_API_KEY: "cgw-sk-good", CLOUDGPU_BASE_URL: api.url });
+    let r = await runBin(["balance", "--json"], { CLOUDGPU_API_KEY: "example-good-key", CLOUDGPU_BASE_URL: api.url });
     assert.equal(r.code, 0, r.err);
     assert.equal(JSON.parse(r.out).balance_usd, 3);
-    r = await runBin(["balance"], { CLOUDGPU_API_KEY: "cgw-sk-bad", CLOUDGPU_BASE_URL: api.url });
+    r = await runBin(["balance"], { CLOUDGPU_API_KEY: "example-bad-key", CLOUDGPU_BASE_URL: api.url });
     assert.equal(r.code, 1);
     assert.match(r.err, /Invalid API key/);
     assert.equal((await runBin(["up"])).code, 2);
