@@ -252,7 +252,7 @@ server.registerTool(
       billing_increment_seconds:increment,
       minimum_charge_usd:Number(billing.minimumChargeUsd),
       preauthorized_usd:Number(billing.preauthorizedUsd),
-      billing_description:increment===3600?"Minimum one hour; each started hour is charged in full. Unused time within a charged hour is not refunded on voluntary stop.":"Billed per minute, one-minute minimum; unused prepaid minutes are refunded on destroy.",
+      billing_description:increment===3600?"Billing starts at resource allocation. Minimum one hour; each started hour is charged in full. Unused time within a charged hour is not refunded on voluntary stop.":"Billed per minute, one-minute minimum; unused prepaid minutes are refunded on destroy.",
       hours,
       estimated_cost_usd: estimate,
       balance_usd: balance,
