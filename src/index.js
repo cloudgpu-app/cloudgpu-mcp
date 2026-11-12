@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {rentalBilling} from "./rental-billing.js";
 import {registerBatchTools} from './job-batches.js';
 import {jobInputShape} from './job-input.js';
 import {registerTaskTemplateTools} from './task-templates.js';
@@ -35,7 +36,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.12.1";
+const VERSION = "0.13.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -230,8 +231,8 @@ server.registerTool(
     if (gpu_count < (offer.min_gpu_count || 1)) {
       return fail(`${offer.gpu_model} is rented in groups of at least ${offer.min_gpu_count} GPUs.`);
     }
-    const hourly = round2(Number(offer.hourly_usd) * gpu_count);
-    const estimate = round2(hourly * hours);
+    const billing = await api.rentalBillingQuote({gpuModel:offer.gpu_model,gpuCount:gpu_count,...(template?{templateId:template}:{})});
+    const {hourly,increment,estimate}=rentalBilling(billing,hours);
     const balance = account ? Number(account.balance_usd) : null;
     const warnings = [];
     if (offer.available === "none") warnings.push("This GPU is out of stock right now; renting will likely fail. Pick another.");
@@ -241,13 +242,17 @@ server.registerTool(
         `Balance $${balance} does not cover the estimate plus a 10% buffer. When the balance runs out the instance is destroyed and its disk erased. Top up at https://cloudgpu.app/billing.`,
       );
     }
-    const quote_id = quotes.put({ gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate });
+    const quote_id = quotes.put({ gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate, billingQuoteId:billing.billingQuoteId, billingExpiresAt:billing.expiresAt, minimumChargeUsd:Number(billing.minimumChargeUsd), billingIncrementSeconds:increment });
     return ok({
       quote_id,
       gpu_model: offer.gpu_model,
       gpu_count,
       template: template || null,
       usd_per_hour: hourly,
+      billing_increment_seconds:increment,
+      minimum_charge_usd:Number(billing.minimumChargeUsd),
+      preauthorized_usd:Number(billing.preauthorizedUsd),
+      billing_description:increment===3600?"Billing starts at resource allocation. Minimum one hour; each started hour is charged in full. Unused time within a charged hour is not refunded on voluntary stop.":"Billed per minute, one-minute minimum; unused prepaid minutes are refunded on destroy.",
       hours,
       estimated_cost_usd: estimate,
       balance_usd: balance,
@@ -464,6 +469,8 @@ if (!cfg.readOnly) {
       if (idle_minutes > 0 && idle_minutes < 10) return fail("idle_minutes must be 0 (off) or at least 10.");
       const { quote, error } = quotes.take(quote_id);
       if (error) return fail(error);
+      if(!quote.billingQuoteId || quote.billingExpiresAt<=Date.now())return fail("Billing quote expired. Request estimate_cost again and ask the user to approve it.");
+      if(max_spend_usd<quote.minimumChargeUsd)return fail("Budget is below the minimum charge shown in the approved quote.");
       const account = await api.account();
       const balance = Number(account.balance_usd);
       const needed = round2(Math.min(max_spend_usd, quote.estimate) * 1.1);
@@ -473,6 +480,8 @@ if (!cfg.readOnly) {
         );
       }
       const body = {
+        billing_quote_id:quote.billingQuoteId,
+        billing_accepted:true,
         gpu_model: quote.gpu_model,
         gpu_count: quote.gpu_count,
         max_minutes: Math.ceil(max_hours * 60),
