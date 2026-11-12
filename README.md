@@ -360,3 +360,9 @@ Keep the exact original manifest outside the receipt store. Expired quotes for u
 One in-flight batch retains its original API credential and endpoint even if another tool connects a different account concurrently. `not_submitted` in a returned call receipt means unvisited **in that invocation only**; those entries may have accepted Jobs from an earlier call. Inspect the saved receipt and live Job IDs before deciding what remains.
 
 Use 0.12.1 or newer for directory-entry durability: newly created config/receipt directories and their parent entries are synced before paid submission. A parent-directory sync failure refuses new batch work. Existing 0.12.0 receipt records remain readable; preserve their IDs and original keys rather than deleting them. Process-exit tests alone do not constitute physical power-loss testing.
+
+### Rental billing quotes (0.13.0)
+
+`estimate_cost` obtains a short-lived server billing quote and reports the minimum charge, billing increment and preauthorization. Most sources charge by the minute. A whole-hour source starts billing at resource allocation, has a one-hour minimum and charges each started hour in full; voluntary stop does not refund unused time inside that hour. Show these terms and the estimate before requesting the user’s approval. `rent_gpu` submits the same approved billing quote; expired quotes require a new estimate and approval. Do not infer billing periods from the GPU model or hourly price.
+
+Upgrade your installed `cloudgpu-mcp` package and restart the MCP client to load the new tools. This update does not restart existing GPUs.
