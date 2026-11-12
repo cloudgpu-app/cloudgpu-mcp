@@ -58,8 +58,8 @@ jobs:
           done
           echo "npm version not visible" >&2; exit 1
 
+      # Retry Registry publication even when npm already contains this version.
       - name: Publish to MCP Registry
-        if: steps.npmcheck.outputs.published != 'true'
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
           ./mcp-publisher login github-oidc

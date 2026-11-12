@@ -366,3 +366,7 @@ Use 0.12.1 or newer for directory-entry durability: newly created config/receipt
 `estimate_cost` obtains a short-lived server billing quote and reports the minimum charge, billing increment and preauthorization. Most sources charge by the minute. A whole-hour source starts billing at resource allocation, has a one-hour minimum and charges each started hour in full; voluntary stop does not refund unused time inside that hour. Show these terms and the estimate before requesting the user’s approval. `rent_gpu` submits the same approved billing quote; expired quotes require a new estimate and approval. Do not infer billing periods from the GPU model or hourly price.
 
 Upgrade your installed `cloudgpu-mcp` package and restart the MCP client to load the new tools. This update does not restart existing GPUs.
+
+### Registry namespace update (0.13.1)
+
+The current MCP Registry listing is `io.github.cloudgpu-app/cloudgpu-mcp`, matching the repository organization. Older entries under `io.github.mrhy7176/cloudgpu-mcp` are historical. The npm package remains `cloudgpu-mcp`; existing stdio configurations and scoped API keys do not change. Upgrade the package and restart your MCP client.
