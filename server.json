@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.mrhy7176/cloudgpu-mcp",
+  "name": "io.github.cloudgpu-app/cloudgpu-mcp",
   "description": "Rent a GPU with explicit billing quotes, run a Job, download results and shut it down.",
   "title": "CloudGPU MCP",
   "websiteUrl": "https://cloudgpu.app/docs/mcp",
@@ -8,13 +8,13 @@
     "url": "https://github.com/cloudgpu-app/cloudgpu-mcp",
     "source": "github"
   },
-  "version": "0.13.0",
+  "version": "0.13.1",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "cloudgpu-mcp",
-      "version": "0.13.0",
+      "version": "0.13.1",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
