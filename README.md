@@ -110,14 +110,14 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 - **Claude plugin:** both skills are included automatically when you install the CloudGPU Claude plugin from this repo's marketplace:
 
   ```
-  /plugin marketplace add mrhy7176/cloudgpu-mcp
+  /plugin marketplace add cloudgpu-app/cloudgpu-mcp
   /plugin install cloudgpu@cloudgpu
   ```
 
 - **Codex plugin:** the same repository is an Agent Plugins package (`plugin.json`, `mcp.json`, and `skills/`). Codex shows it as CloudGPU. The server reads `CLOUDGPU_API_KEY` from the environment.
 
   ```
-  codex plugin marketplace add mrhy7176/cloudgpu-mcp
+  codex plugin marketplace add cloudgpu-app/cloudgpu-mcp
   ```
 
 - **Claude Code, personal install:** copy `skills/cloudgpu/` and `skills/cloudgpu-model-api/` to `~/.claude/skills/`.
@@ -125,7 +125,7 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 - **Cursor, Codex, Cline, Amp and other agents that read Agent Skills:** install both skills with the [skills CLI](https://skills.sh):
 
   ```
-  npx skills add mrhy7176/cloudgpu-mcp
+  npx skills add cloudgpu-app/cloudgpu-mcp
   ```
 
 ## Tools
