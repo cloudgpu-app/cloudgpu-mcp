@@ -20,7 +20,7 @@ test("refuses credential uploads by default", () => {
 });
 
 test("redacts secrets and hides ssh details", () => {
-  assert.equal(redact("pw hunter22 at 1.2.3.4 key sk-abcdefghijklmnopqrstu", ["hunter22", "1.2.3.4"]),
+  assert.equal(redact("pw example-password at 1.2.3.4 key sk-" + "x".repeat(20), ["example-password", "1.2.3.4"]),
     "pw [redacted] at [redacted] key sk-[redacted]");
   const p = publicInstance({ id: "1", status: "running", ssh: { host: "1.2.3.4", port: 22, user: "root", password: "x" } });
   assert.equal(p.ssh, undefined);

@@ -17,7 +17,7 @@ Add this to the MCP settings file (for Cline: `cline_mcp_settings.json`), with t
       "command": "npx",
       "args": ["-y", "cloudgpu-mcp"],
       "env": {
-        "CLOUDGPU_API_KEY": "cgw-sk-REPLACE_WITH_USER_KEY"
+        "CLOUDGPU_API_KEY": "<YOUR_API_KEY>"
       }
     }
   }

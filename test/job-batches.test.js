@@ -40,7 +40,7 @@ test('release uncertainty, malformed responses and API rejection never advance t
 test('actual MCP to local REST preserves submission keys after a lost response and never duplicates a GPU',async()=>{
  const rows=new Map();let posts=0,resources=0,lost=false;
  const server=http.createServer(async(req,res)=>{
-  assert.equal(req.headers.authorization,'Bearer synthetic-batch-test');
+  assert.equal(req.headers.authorization,'Bearer example-batch-key');
   if(req.method==='POST'&&req.url==='/v1/jobs'){
    posts++;let text='';for await(const b of req)text+=b;const body=JSON.parse(text),key=req.headers['idempotency-key'];assert.ok(key);assert.equal(body.max_minutes,30);assert.equal(body.user_confirmed,undefined);
    if(!rows.has(key))rows.set(key,{id:id(++resources),status:'queued'});
@@ -52,7 +52,7 @@ test('actual MCP to local REST preserves submission keys after a lost response a
   res.writeHead(404);res.end('{}');
  });await new Promise(r=>server.listen(0,'127.0.0.1',r));
  const receiptDir=await fs.mkdtemp(path.join(os.tmpdir(),'cgpu-batch-'));
- const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_CONFIG_DIR:receiptDir,CLOUDGPU_API_KEY:'synthetic-batch-test',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});transport.stderr?.on('data',()=>{});const client=new Client({name:'batch-rest-test',version:'1'});
+ const transport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_CONFIG_DIR:receiptDir,CLOUDGPU_API_KEY:'example-batch-key',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});transport.stderr?.on('data',()=>{});const client=new Client({name:'batch-rest-test',version:'1'});
  try{
   await client.connect(transport);const call=async(name,args)=>{const r=await client.callTool({name,arguments:args});assert.ok(!r.isError,r.content[0].text);return JSON.parse(r.content[0].text);};
   const p=input();const plan=await call('prepare_job_batch',p);const request={...p,user_confirmed:true,approved_plan_sha256:plan.plan_sha256};
@@ -60,7 +60,7 @@ test('actual MCP to local REST preserves submission keys after a lost response a
   const replay=await call('run_job_batch',request);assert.deepEqual(replay.items,first.items);assert.equal(resources,3);assert.equal(posts,4);
   const state=await call('get_job_batch',{job_ids:first.items.map(i=>i.job_id)});assert.equal(state.all_terminal,false);assert.equal(state.requires_reconciliation,false);assert.equal(state.automatic_retry_allowed,false);
   await client.close();await transport.close();
-  const restartedTransport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_CONFIG_DIR:receiptDir,CLOUDGPU_API_KEY:'synthetic-batch-test',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});restartedTransport.stderr?.on('data',()=>{});
+  const restartedTransport=new StdioClientTransport({command:process.execPath,args:['src/index.js'],env:{...process.env,CLOUDGPU_CONFIG_DIR:receiptDir,CLOUDGPU_API_KEY:'example-batch-key',CLOUDGPU_BASE_URL:'http://127.0.0.1:'+server.address().port,CLOUDGPU_READ_ONLY:'0'},stderr:'pipe'});restartedTransport.stderr?.on('data',()=>{});
   const restarted=new Client({name:'batch-after-process-exit',version:'1'});
   try{await restarted.connect(restartedTransport);const saved=await restarted.callTool({name:'get_job_batch_receipt',arguments:{batch_key:p.batch_key}});const local=JSON.parse(saved.content[0].text);assert.equal(local.found,true);assert.deepEqual(local.items.map(x=>x.job_id),first.items.map(x=>x.job_id));
    const resumed=await restarted.callTool({name:'run_job_batch',arguments:request});assert.ok(!resumed.isError,resumed.content[0].text);assert.equal(JSON.parse(resumed.content[0].text).status,'submitted');assert.equal(posts,4);assert.equal(resources,3);

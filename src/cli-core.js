@@ -333,6 +333,7 @@ function limitsText(l) {
 }
 
 export function instanceDetails(inst, { showPassword = false } = {}) {
+  const concealed = "(hidden; add --show-password to print it)";
   const rows = [
     ["ID", inst.id],
     ["Status", inst.status],
@@ -350,7 +351,7 @@ export function instanceDetails(inst, { showPassword = false } = {}) {
       inst.status === "running" && inst.ssh && inst.ssh.password
         ? showPassword
           ? inst.ssh.password
-          : "(hidden; add --show-password to print it)"
+          : concealed
         : null,
     ],
     ["URL", inst.api_url || null],

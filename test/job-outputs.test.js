@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {CloudGpuApi} from '../src/api.js';
 const body={command:'echo ok > "$CLOUDGPU_OUTPUT_DIR/result.txt"',outputs:{files:['result.txt'],max_bytes:100}};
 function setup(caps) {
- const calls=[];return {calls,api:new CloudGpuApi({apiKey:'test-key',fetchImpl:async(url,opts)=>{
+ const calls=[];return {calls,api:new CloudGpuApi({apiKey:'example-key',fetchImpl:async(url,opts)=>{
   calls.push({url,opts});return {ok:true,text:async()=>JSON.stringify(opts.method==='GET'?caps:{id:'job_mock',outputs:JSON.parse(opts.body).outputs})};
  }})};
 }

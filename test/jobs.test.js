@@ -18,7 +18,7 @@ function fakeFetch(responses, calls) {
 test("createJob sends the Idempotency-Key and retries a network error with the same key", async () => {
   const calls = [];
   const api = new CloudGpuApi({
-    apiKey: "cgw-sk-x",
+    apiKey: "example-key",
     fetchImpl: fakeFetch([new Error("socket hang up"), { status: 202, body: { id: "job_1", status: "queued" } }], calls),
   });
   const job = await api.createJob({ command: "echo" }, "idem-123");
@@ -74,10 +74,10 @@ test("stored key round-trips, is private to the user, and an expired one is igno
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "cgpu-"));
   const env = { CLOUDGPU_CONFIG_DIR: dir };
   assert.equal(loadStoredKey(env), null);
-  const file = saveStoredKey({ api_key: "cgw-sk-abc", expires_at: Math.floor(Date.now() / 1000) + 3600 }, env);
+  const file = saveStoredKey({ api_key: "example-stored-key", expires_at: Math.floor(Date.now() / 1000) + 3600 }, env);
   assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-  assert.equal(loadStoredKey(env).api_key, "cgw-sk-abc");
-  saveStoredKey({ api_key: "cgw-sk-old", expires_at: 1 }, env);
+  assert.equal(loadStoredKey(env).api_key, "example-stored-key");
+  saveStoredKey({ api_key: "example-old-key", expires_at: 1 }, env);
   assert.equal(loadStoredKey(env), null);
 });
 
@@ -94,7 +94,7 @@ test("run_job and cancel_job are marked destructive; reads are read-only", () =>
 
 test("optional storage being disabled does not affect existing account, offers or Jobs REST calls", async () => {
   const calls=[];
-  const api=new CloudGpuApi({apiKey:'fake-test-key',fetchImpl:fakeFetch([
+  const api=new CloudGpuApi({apiKey:'example-test-key',fetchImpl:fakeFetch([
     {status:503,body:{error:{code:'storage_not_enabled',message:'disabled'}}},
     {status:200,body:{balance_usd:1}},
     {status:200,body:{data:[]}},

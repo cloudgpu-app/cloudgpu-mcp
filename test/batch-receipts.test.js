@@ -4,14 +4,14 @@ import {BatchReceipts} from '../src/batch-receipts.js';import {prepareJobBatch,s
 const cfg={maxSpend:5,maxHours:2};const id=n=>'job_'+String(n).repeat(32);
 function input(){return {batch_key:'owner-review',total_budget_usd:2,jobs:[1,2].map(n=>({quote_id:'quote_'+String(n).repeat(32),command:'printf secret_fixture_do_not_persist',max_spend_usd:1,max_hours:.5}))};}
 const approval=p=>({...p,user_confirmed:true,approved_plan_sha256:prepareJobBatch(p,cfg).plan_sha256});
-async function fixture(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'cgpu-receipt-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));return {root,store:new BatchReceipts({root,apiKey:'synthetic-key-never-store',baseUrl:'https://example.invalid'})};}
+async function fixture(t){const root=await fs.mkdtemp(path.join(os.tmpdir(),'cgpu-receipt-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));return {root,store:new BatchReceipts({root,apiKey:'example-key-never-store',baseUrl:'https://example.invalid'})};}
 async function files(dir){let all=[];for(const e of await fs.readdir(dir,{withFileTypes:true})){const p=path.join(dir,e.name);if(e.isDirectory())all.push(...await files(p));else all.push(p);}return all;}
 test('new process/store recovers accepted IDs by GET, never another creation POST',async t=>{
  const {root,store}=await fixture(t);let creates=0,reads=0;const p=approval(input());const api={createJob:async()=>({id:id(++creates),status:'queued'}),job:async key=>{reads++;return {id:key,status:'running'};}};
  const a=await submitJobBatch(api,p,cfg,store);assert.equal(a.status,'submitted');assert.equal(creates,2);
- const b=await submitJobBatch(api,p,cfg,new BatchReceipts({root,apiKey:'synthetic-key-never-store',baseUrl:'https://example.invalid'}));assert.equal(b.status,'submitted');assert.equal(creates,2);assert.equal(reads,2);assert.deepEqual(b.items.map(x=>x.job_id),a.items.map(x=>x.job_id));
+ const b=await submitJobBatch(api,p,cfg,new BatchReceipts({root,apiKey:'example-key-never-store',baseUrl:'https://example.invalid'}));assert.equal(b.status,'submitted');assert.equal(creates,2);assert.equal(reads,2);assert.deepEqual(b.items.map(x=>x.job_id),a.items.map(x=>x.job_id));
  const snap=await store.snapshot(p.batch_key);assert.equal(snap.items[0].local_state,'accepted');assert.equal(snap.live_status,false);
- const names=await files(root);for(const file of names){const text=await fs.readFile(file,'utf8');assert.doesNotMatch(text,/secret_fixture|synthetic-key-never-store|https:|printf|quote_/);assert.equal((await fs.stat(file)).mode&0o077,0);}
+ const names=await files(root);for(const file of names){const text=await fs.readFile(file,'utf8');assert.doesNotMatch(text,/secret_fixture|example-key-never-store|https:|printf|quote_/);assert.equal((await fs.stat(file)).mode&0o077,0);}
 });
 test('lost acknowledgement leaves intent, identical replay reconciles same key; changed plan refused before requests',async t=>{
  const {store}=await fixture(t);const rows=new Map();let calls=0,lost=true;
@@ -27,7 +27,7 @@ test('recorded Job unavailable or stopping never causes a replacement POST or ad
 });
 test('account and endpoint isolation; read-only missing lookup creates no files',async t=>{
  const {root,store}=await fixture(t);await store.bind(prepareJobBatch(input(),cfg));
- for(const change of [{apiKey:'other'},{baseUrl:'https://other.invalid'}]){const other=new BatchReceipts({root,apiKey:'synthetic-key-never-store',baseUrl:'https://example.invalid',...change});assert.equal((await other.snapshot('owner-review')).found,false);}
+ for(const change of [{apiKey:'other'},{baseUrl:'https://other.invalid'}]){const other=new BatchReceipts({root,apiKey:'example-key-never-store',baseUrl:'https://example.invalid',...change});assert.equal((await other.snapshot('owner-review')).found,false);}
  const missing=path.join(root,'missing'),s=new BatchReceipts({root:missing,apiKey:'key',baseUrl:'x'});assert.equal((await s.snapshot('new')).found,false);await assert.rejects(fs.stat(missing));
 });
 test('malformed, symlink or publicly-readable receipts fail closed before new spending',async t=>{
@@ -47,9 +47,9 @@ test('receipt cap refuses new batches without discarding unresolved evidence',as
 test('newly connected or rotated API key is used after tool registration',async t=>{
  const {root}=await fixture(t),prior=process.env.CLOUDGPU_CONFIG_DIR;process.env.CLOUDGPU_CONFIG_DIR=root;t.after(()=>{if(prior===undefined)delete process.env.CLOUDGPU_CONFIG_DIR;else process.env.CLOUDGPU_CONFIG_DIR=prior;});
  const tools=new Map(),api={apiKey:'',createJob:async()=>({id:id(1),status:'queued'})};
- registerBatchTools({registerTool:(name,schema,fn)=>tools.set(name,fn)},{api,cfg:{...cfg,apiKey:'',baseUrl:'https://example.invalid'},wrap:f=>f,ok:x=>x});api.apiKey='new-scoped-key';
+ registerBatchTools({registerTool:(name,schema,fn)=>tools.set(name,fn)},{api,cfg:{...cfg,apiKey:'',baseUrl:'https://example.invalid'},wrap:f=>f,ok:x=>x});api.apiKey='example-new-scoped-key';
  const p=input();p.jobs=p.jobs.slice(0,1);const r=await tools.get('run_job_batch')(approval(p));assert.equal(r.status,'submitted');assert.equal((await tools.get('get_job_batch_receipt')({batch_key:p.batch_key})).found,true);
- api.apiKey='different-scoped-key';assert.equal((await tools.get('get_job_batch_receipt')({batch_key:p.batch_key})).found,false);
+ api.apiKey='example-different-scoped-key';assert.equal((await tools.get('get_job_batch_receipt')({batch_key:p.batch_key})).found,false);
 });
 test('concurrent immutable plan and acceptance writes retain a single accepted Job identity',async t=>{
  const {root}=await fixture(t),a=new BatchReceipts({root,apiKey:'key',baseUrl:'x'}),b=new BatchReceipts({root,apiKey:'key',baseUrl:'x'}),plan=prepareJobBatch(input(),cfg);
@@ -63,8 +63,8 @@ test('terminal recorded Job without final settlement stops further submissions',
 });
 
 test('in-flight batch keeps the original account and endpoint after concurrent key rotation',async t=>{
- const {root}=await fixture(t);let calls=0,api;const fetchImpl=async(url,opts)=>{assert.equal(url,'https://example.invalid/v1/jobs');assert.equal(opts.headers.Authorization,'Bearer original-key');calls++;api.apiKey='rotated-key';api.baseUrl='https://other.invalid';return new Response(JSON.stringify({id:id(calls),status:'queued'}),{status:200,headers:{'Content-Type':'application/json'}});};
- api=new CloudGpuApi({apiKey:'original-key',baseUrl:'https://example.invalid',fetchImpl});const store=new BatchReceipts({root,apiKey:api.apiKey,baseUrl:api.baseUrl});const r=await submitJobBatch(api,approval(input()),cfg,store);assert.equal(r.status,'submitted');assert.equal(calls,2);assert.equal((await store.snapshot('owner-review')).items.length,2);assert.match(r.not_submitted_scope,/this_invocation_only/);
+ const {root}=await fixture(t);let calls=0,api;const fetchImpl=async(url,opts)=>{assert.equal(url,'https://example.invalid/v1/jobs');assert.equal(opts.headers.Authorization,'Bearer example-original-key');calls++;api.apiKey='example-rotated-key';api.baseUrl='https://other.invalid';return new Response(JSON.stringify({id:id(calls),status:'queued'}),{status:200,headers:{'Content-Type':'application/json'}});};
+ api=new CloudGpuApi({apiKey:'example-original-key',baseUrl:'https://example.invalid',fetchImpl});const store=new BatchReceipts({root,apiKey:api.apiKey,baseUrl:api.baseUrl});const r=await submitJobBatch(api,approval(input()),cfg,store);assert.equal(r.status,'submitted');assert.equal(calls,2);assert.equal((await store.snapshot('owner-review')).items.length,2);assert.match(r.not_submitted_scope,/this_invocation_only/);
 });
 test('all newly created directory parent entries are synced before the first paid request',async t=>{
  const {root}=await fixture(t),target=path.join(root,'fresh','nested','config'),realOpen=fs.open,synced=[];
