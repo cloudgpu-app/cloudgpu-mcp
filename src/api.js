@@ -91,6 +91,7 @@ export class CloudGpuApi {
   instance(id) {
     return this.request("GET", `/v1/gpu/instances/${encodeURIComponent(id)}`);
   }
+  rentalBillingQuote(body) { return this.request("POST", "/v1/gpu/billing-quote", body); }
   create(body) {
     return this.request("POST", "/v1/gpu/instances", body);
   }
