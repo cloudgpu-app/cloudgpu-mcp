@@ -1,6 +1,7 @@
 // 只读任务准备：不访问 API、不租 GPU、不安装依赖，也不推断预算或存储同意。
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
+import {INFERENCE_TASKS,inferenceFields,prepareInferenceRecipe} from './inference-recipes.js';
 import {APPLICATION_TASKS,applicationFields,prepareApplicationRecipe} from './application-recipes.js';
 
 const TASKS = [
@@ -8,12 +9,13 @@ const TASKS = [
   {id:'csv-summary',version:1,title:'Summarize a Workspace CSV',requires_workspace:true,requirements:['Python 3','Immutable Workspace version','UTF-8 CSV, at most 32 MiB'],result_files:['csv-summary.json'],description:'Count rows, columns and inconsistent row widths without logging cell values. Usually a CPU task; prefer local execution when a GPU is unnecessary.'},
   {id:'workspace-python',version:1,title:'Run a reviewed Workspace Python script',requires_workspace:true,requirements:['Python 3','Immutable Workspace version','User-reviewed Python entrypoint and dependencies already prepared'],result_files:[],description:'Reuse your own inference or training script. Does not install packages, supply a model, or certify application compatibility.'},
 ];
-TASKS.push(...APPLICATION_TASKS);
+TASKS.push(...APPLICATION_TASKS,...INFERENCE_TASKS);
 const id=z.enum(TASKS.map(t=>t.id));
 const relative=z.string().min(1).max(240).regex(/^[A-Za-z0-9_][A-Za-z0-9_./-]*$/).refine(p=>p.split('/').every(s=>s && s!=='.' && s!=='..' && !s.startsWith('.')),'Use a relative path without traversal or hidden components');
 const schema=z.object({
   template_id:id,
   ...applicationFields,
+  ...inferenceFields,
   workspace_version_id:z.string().regex(/^wsv_[0-9a-f]{32}$/).optional(),
   input_path:relative.optional(),
   entrypoint:relative.refine(p=>p.endsWith('.py'),'Entrypoint must be a Python file').optional(),
@@ -76,6 +78,8 @@ export function listTaskTemplates(){
 
 export function prepareTaskTemplate(raw){
   const p=schema.parse(raw),t=TASKS.find(t=>t.id===p.template_id);
+  const inference=prepareInferenceRecipe(p);if(inference)return inference;
+  if(Object.keys(inferenceFields).some(k=>p[k]!==undefined))throw Error('Inference fields do not belong to this task');
   const application=prepareApplicationRecipe(p);if(application)return application;
   if(Object.keys(applicationFields).some(k=>p[k]!==undefined))throw Error('Application-specific fields do not belong to this task');
   if(t.requires_workspace && !p.workspace_version_id)throw Error('Select an immutable Workspace version before preparing this task');
