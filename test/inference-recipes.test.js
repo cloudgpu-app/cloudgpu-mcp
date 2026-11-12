@@ -20,3 +20,16 @@ test('prepared inference executes offline, enforces token bounds, persists resul
   const summary=JSON.parse(await fs.readFile(path.join(root,'out/task-summary.json')));assert.equal(summary.max_new_tokens,2);assert.equal(summary.revision,ref.revision);
  }finally{await fs.rm(root,{recursive:true,force:true});}
 });
+test('Whisper consumes bounded PCM WAV offline, writes transcript only to outputs and rejects incompatible audio',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'cg-whisper-'));
+ try{
+  for(const d of ['fake','out','badout','models/base'])await fs.mkdir(path.join(root,d),{recursive:true});
+  const create=spawnSync('python3',['-c',"import wave\nfor name,channels in [('input.wav',1),('bad.wav',2)]:\n with wave.open(name,'wb') as f:f.setnchannels(channels);f.setsampwidth(2);f.setframerate(16000);f.writeframes(bytes(3200*channels))"],{cwd:root});assert.equal(create.status,0);
+  await fs.writeFile(path.join(root,'fake/torch.py'),`import types,contextlib\ncuda=types.SimpleNamespace(is_available=lambda: True)\ndef manual_seed(n):assert n==0\nno_grad=contextlib.nullcontext\n`);
+  await fs.writeFile(path.join(root,'fake/numpy.py'),`float32='float32'\nclass Audio:\n def astype(self,t):assert t=='float32';return self\n def __truediv__(self,n):assert n==32768.0;return self\ndef frombuffer(b,dtype):assert len(b)==3200 and dtype=='<i2';return Audio()\n`);
+  await fs.writeFile(path.join(root,'fake/transformers.py'),`import os,types\nclass Features:\n def to(self,d):assert d=='cuda';return self\nclass WhisperProcessor:\n @classmethod\n def from_pretrained(cls,p,**kw):assert kw=={'local_files_only':True,'trust_remote_code':False} and os.environ['HF_HUB_OFFLINE']=='1';return cls()\n def __call__(self,a,**kw):assert kw=={'sampling_rate':16000,'return_tensors':'pt'};return types.SimpleNamespace(input_features=Features())\n def batch_decode(self,v,**kw):assert v==[1] and kw=={'skip_special_tokens':True};return ['private-synthetic-transcript']\nclass WhisperForConditionalGeneration:\n @classmethod\n def from_pretrained(cls,p,**kw):assert kw=={'local_files_only':True,'trust_remote_code':False};return cls()\n def to(self,d):assert d=='cuda';return self\n def eval(self):return self\n def generate(self,x,**kw):assert kw=={'max_new_tokens':3,'do_sample':False,'task':'transcribe','language':'en'};return [1]\n`);
+  function execute(input,out){const p=prepareTaskTemplate({...common,template_id:'whisper-transcription',input_path:input,max_new_tokens:3,language:'en'});return spawnSync('bash',['-c',p.run_job_draft.command],{cwd:root,encoding:'utf8',timeout:10000,env:{...process.env,PYTHONPATH:path.join(root,'fake'),CLOUDGPU_MODEL_DIR:path.join(root,'models'),CLOUDGPU_OUTPUT_DIR:path.join(root,out)}});}
+  const r=execute('input.wav','out');assert.equal(r.status,0,r.stderr);assert.doesNotMatch(r.stdout+r.stderr,/private-synthetic-transcript/);assert.equal(JSON.parse(await fs.readFile(path.join(root,'out/transcript.json'))).text,'private-synthetic-transcript');
+  const bad=execute('bad.wav','badout');assert.equal(bad.status,2);assert.equal((await fs.readdir(path.join(root,'badout'))).length,0);assert.doesNotMatch(bad.stderr,/Traceback|private/);
+ }finally{await fs.rm(root,{recursive:true,force:true});}
+});
