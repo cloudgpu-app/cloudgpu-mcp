@@ -25,7 +25,7 @@ test('preparation supplies no approval, GPU selection, budget, quote or submissi
  assert.notEqual(p.pipeline_sha256,prepareTaskPipeline({steps:[{id:'one',command:'false'}]}).pipeline_sha256);
 });
 test('invalid IDs, duplicate IDs, unsafe monitoring commands and recognizable credentials are refused',()=>{
- for(const raw of [{steps:[]},{steps:[{id:'../bad',command:'true'}]},{steps:[{id:'same',command:'true'},{id:'same',command:'true'}]},{steps:[{id:'one',command:'systemctl stop ssh'}]},{steps:[{id:'one',command:'echo "password=synthetic"'}]},{steps:[{id:'one',command:'echo sk-abcdefghijklmnop123456'}]}])assert.throws(()=>prepareTaskPipeline(raw));
+ for(const raw of [{steps:[]},{steps:[{id:'trailing\n',command:'true'}]},{steps:[{id:'../bad',command:'true'}]},{steps:[{id:'same',command:'true'},{id:'same',command:'true'}]},{steps:[{id:'one',command:'systemctl stop ssh'}]},{steps:[{id:'one',command:'echo "password=synthetic"'}]},{steps:[{id:'one',command:'echo sk-abcdefghijklmnop123456'}]}])assert.throws(()=>prepareTaskPipeline(raw));
  assert.throws(()=>prepareTaskPipeline({steps:[{id:'one',command:'echo current-credential'}]},'current-credential'));
 });
 test('storage preflight failure and symlink summary never run commands',()=>fixture(async dir=>{

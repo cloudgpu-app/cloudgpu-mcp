@@ -5,8 +5,8 @@ import {checkCommand} from './guards.js';
 import {checkedTail} from './job-results.js';
 
 const input=z.object({
- steps:z.array(z.object({id:z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/),command:z.string().min(1).max(4096)}).strict()).min(1).max(8),
- workspace_version_id:z.string().regex(/^wsv_[a-f0-9]{32}$/).optional(),
+ steps:z.array(z.object({id:z.string().regex(/^[a-z][a-z0-9_-]{0,39}$/).refine(v=>v.trim()===v),command:z.string().min(1).max(4096)}).strict()).min(1).max(8),
+ workspace_version_id:z.string().regex(/^wsv_[a-f0-9]{32}$/).refine(v=>v.trim()===v).optional(),
  persist_summary:z.boolean().default(false),
 }).strict();
 const program=fs.readFileSync(new URL('./recipes/task-pipeline.py',import.meta.url),'utf8');
