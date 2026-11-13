@@ -64,3 +64,17 @@ class ClientTests(unittest.TestCase):
         client=CloudGPU(base_url=self.base,config_dir=self.tmp.name)
         with self.assertRaisesRegex(CloudGPUError,'connect_required'):client.account()
 if __name__=='__main__':unittest.main()
+
+class HermesHomeTests(unittest.TestCase):
+    def test_explicit_hermes_home_receives_private_credentials(self):
+        from cloudgpu.__main__ import hermes_env
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            home=pathlib.Path(directory)/"isolated-hermes"
+            with patch.dict(os.environ,{"HERMES_HOME":str(home)}):
+                client=CloudGPU(api_key="fixture-private-framework-key",config_dir=directory)
+                hermes_env(client)
+            target=home/".env"
+            self.assertEqual(target.stat().st_mode&0o777,0o600)
+            self.assertIn("CLOUDGPU_API_KEY=fixture-private-framework-key",target.read_text())
+            self.assertIn("CLOUDGPU_BASE_URL=https://cloudgpu.app/v1",target.read_text())
