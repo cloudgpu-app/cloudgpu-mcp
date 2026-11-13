@@ -40,7 +40,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.2";
+const VERSION = "0.16.3";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -67,7 +67,8 @@ const session = new Map();
 
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) provides GPU compute scheduling for AI agents from a prepaid balance. Billing is source-specific: per-minute or minimum one hour with each started hour charged in full. Never infer the period from an hourly price label.
 Planning: compare_compute_costs compares billed GPU cost for explicit candidates and duration; it is not a benchmark or creation approval. Check existing list_instances before renting: multiple approved commands can use the same running rental within its existing budget, time and idle limits. Separate run_job calls each provision and release independently; prepare_job_rerun does not reuse a live GPU. Never extend limits or keep idle GPUs merely to consume prepaid time.
-Batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
+Server batches: prepare_job_batch also prepares the exact manifest for run_server_job_batch. The new tool atomically enqueues on the server, persists across client/server restarts, and requires an aggregate cap and individually approved billing. Use get_server_job_batch/cancel_server_job_batch; never substitute client partial submission when unavailable. No automatic failed-command retries.
+Legacy client batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
 Shared allocation: prepare_task_pipeline prepares 1–8 reviewed sequential commands as a single Job draft, or for an approved existing rental. It creates nothing. Independent run_job calls do not share a GPU. Pipeline summary persistence is explicit and does not save arbitrary results or authorize storage charges.
 Task recipes: list_task_templates and prepare_task_template return local read-only drafts, never a paid submission. Check prerequisites, quote and obtain explicit approval before run_job. Prefer local CPU processing when a GPU is unnecessary.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
@@ -539,7 +540,7 @@ if (!cfg.readOnly) {
       inputSchema: jobInputShape(cfg),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, outputs, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
+    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, outputs, quote_id, billing_quote_id, billing_accepted, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
       if (user_confirmed !== true) {
         return fail("Not started: tell the user the GPU, budget and time limit, wait for an explicit yes, then call again with user_confirmed=true.");
       }
@@ -561,6 +562,7 @@ if (!cfg.readOnly) {
       if (outputs) body.outputs = outputs;
       if (model_references?.length) body.model_references = model_references;
       if (quote_id) body.quote_id = quote_id;
+      if (billing_quote_id) {if(billing_accepted!==true)return fail("Not started: accept the source-specific minimum charge and billing period first.");body.billing_quote_id=billing_quote_id;body.billing_accepted=true;}
       const job = await api.createJob(body, key);
       return ok({
         ...job,
