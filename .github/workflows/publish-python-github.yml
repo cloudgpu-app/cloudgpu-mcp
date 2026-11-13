@@ -1,0 +1,65 @@
+name: Publish reviewed Python SDK artifacts to GitHub
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Reviewed main commit to build
+        required: true
+      version:
+        description: Exact Python SDK version
+        required: true
+        default: '0.1.0'
+permissions:
+  contents: read
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.source_sha }}
+      - name: Verify reviewed source and package version
+        run: |
+          python3 - <<'PY'
+          import os,re,tomllib
+          assert re.fullmatch('[0-9a-f]{40}',os.environ['SOURCE_SHA'])
+          assert re.fullmatch('[0-9]+\.[0-9]+\.[0-9]+',os.environ['RELEASE_VERSION'])
+          assert tomllib.load(open('python/pyproject.toml','rb'))['project']['version']==os.environ['RELEASE_VERSION']
+          PY
+          git fetch origin main
+          test "$(git rev-parse HEAD)" = "$SOURCE_SHA"
+          git merge-base --is-ancestor HEAD origin/main
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Verify and build the dependency-free SDK
+        run: |
+          PYTHONPATH=python python -m unittest discover -s python/tests
+          python -m pip install build==1.3.0
+          python -m build python --outdir dist
+          cd dist
+          sha256sum cloudgpu-*.whl cloudgpu-*.tar.gz > SHA256SUMS
+      - name: Publish immutable reviewed artifacts
+        run: |
+          TAG="python-v$RELEASE_VERSION"
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft > /tmp/release-draft; then
+            test "$(cat /tmp/release-draft)" = true || { echo 'Published release is immutable; refusing overwrite'; exit 1; }
+            gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" dist/* --clobber
+          else
+            python3 - <<'PY'
+          import os,pathlib
+          version=os.environ['RELEASE_VERSION'];source=os.environ['SOURCE_SHA']
+          pathlib.Path('/tmp/python-release-notes').write_text('Reviewed CloudGPU Python SDK '+version+' from '+source+'.\n\nInstall: python -m pip install https://github.com/cloudgpu-app/cloudgpu-mcp/releases/download/python-v'+version+'/cloudgpu-'+version+'-py3-none-any.whl\n\nVerify files against SHA256SUMS. This is a GitHub distribution, not a PyPI release. No automatic payment, GPU allocation or blind Job retry occurs. Base SDK has no runtime dependencies. Optional framework and Hermes acceptance details are in python/README.md. New Google-owner real payment remains separate.\n')
+          PY
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --draft --target "$SOURCE_SHA" --title "CloudGPU Python SDK $RELEASE_VERSION" --notes-file /tmp/python-release-notes dist/*
+          fi
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
