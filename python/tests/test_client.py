@@ -10,7 +10,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         type(self).calls.append((self.path,self.headers.get('Authorization'),self.headers.get('Idempotency-Key'),body))
         status=200;value={}
         if self.path=='/v1/agent/connect':value={'device_code':'a'*64,'user_code':'DEMO-CODE','google_link':'https://cloudgpu.app/connect?code=DEMO-CODE','expires_in':1800,'interval':5}
-        elif self.path=='/v1/agent/connect/token':value={'api_key':'fixture-secret-key','expires_at':int(time.time())+300,'key_id':'fixture-id'}
+        elif self.path=='/v1/agent/connect/token':value={'api_key':'fixture-secret-key','expires_at':int(time.time())+300,'key_id':'fixture-id','unexpected_token':'fixture-never-return'}
         elif self.path=='/v1/public/agent-self-check':value={'read_only':True}
         elif self.path=='/v1/gpu/account':value={'funded':self.mode!='bonus','balance_usd':5}
         elif self.path=='/v1/jobs':value={'id':'job_'+'a'*32}
@@ -28,7 +28,7 @@ class ClientTests(unittest.TestCase):
         self.assertTrue(self.client.readiness()['read_only']);self.assertIsNone(Handler.calls[-1][1])
     def test_pending_connect_survives_restart_and_key_is_not_returned(self):
         result=self.client.connect_account('fixture agent',5);self.assertNotIn('device_code',result)
-        again=CloudGPU(base_url=self.base,config_dir=self.tmp.name);result=again.finish_connect(timeout=0);self.assertNotIn('api_key',result)
+        again=CloudGPU(base_url=self.base,config_dir=self.tmp.name);result=again.finish_connect(timeout=0);self.assertNotIn('api_key',result);self.assertNotIn('unexpected_token',result)
         self.assertEqual((pathlib.Path(self.tmp.name)/'credentials.json').stat().st_mode&0o777,0o600)
         self.assertFalse((pathlib.Path(self.tmp.name)/'pending-connect.json').exists());self.assertEqual(again.account()['balance_usd'],5)
         elsewhere=CloudGPU(base_url='http://localhost:'+str(self.server.server_port),config_dir=self.tmp.name)
@@ -51,6 +51,14 @@ class ClientTests(unittest.TestCase):
     def test_invalid_server_origin_is_rejected_before_auth(self):
         for base in ['http://other.example','https://owner:secret@example.com','https://example.com/other','https://']:
             with self.assertRaises(CloudGPUError):CloudGPU(base_url=base)
+    def test_framework_bound_submission_cannot_bypass_approval(self):
+        from cloudgpu.frameworks import tool_functions
+        tools={f.__name__:f for f in tool_functions(self.client)}
+        body=json.dumps(dict(quote_id='fixture-quote',command='true',max_minutes=5,max_spend_usd=1))
+        with self.assertRaises(CloudGPUError):tools['cloudgpu_run_job'](body,'stable',False)
+        self.assertEqual(Handler.calls,[])
+        tools['cloudgpu_run_job'](body,'stable',True)
+        self.assertEqual(len(Handler.calls),1);self.assertEqual(Handler.calls[0][2],'stable')
     def test_public_credential_file_is_not_loaded(self):
         private_json(pathlib.Path(self.tmp.name)/'credentials.json',dict(base_url=self.base,api_key='fixture-private'));os.chmod(pathlib.Path(self.tmp.name)/'credentials.json',0o644)
         client=CloudGPU(base_url=self.base,config_dir=self.tmp.name)

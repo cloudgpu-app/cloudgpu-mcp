@@ -90,7 +90,7 @@ class CloudGPU:
                 if not isinstance(cred.get('api_key'),str) or not cred['api_key']:raise CloudGPUError('invalid_credential_response')
                 private_json(self.config_dir/'credentials.json',{**cred,'base_url':self.base_url})
                 self._key=cred['api_key'];(self.config_dir/'pending-connect.json').unlink()
-                return {k:v for k,v in cred.items() if k!='api_key'}
+                return {'connected':True,**{k:cred[k] for k in ['key_id','agent_name','spend_limit_usd','max_concurrent','expires_at'] if k in cred}}
             except CloudGPUError as e:
                 if e.code not in ('authorization_pending','slow_down'):raise
                 if time.monotonic()>=deadline:return {'connected':False,'pending':True}
