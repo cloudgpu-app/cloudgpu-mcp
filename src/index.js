@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import {rentalBilling} from "./rental-billing.js";
+import {registerComputePlanningTools} from './compute-planning.js';
 import {registerBatchTools} from './job-batches.js';
 import {jobInputShape} from './job-input.js';
 import {registerTaskTemplateTools} from './task-templates.js';
@@ -36,7 +37,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.13.1";
+const VERSION = "0.14.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -61,7 +62,8 @@ const quotes = new Quotes();
 // Instances this session touched: did we run anything, did we download anything.
 const session = new Map();
 
-const INSTRUCTIONS = `CloudGPU (cloudgpu.app) rents GPUs billed per minute from a prepaid balance.
+const INSTRUCTIONS = `CloudGPU (cloudgpu.app) provides GPU compute scheduling for AI agents from a prepaid balance. Billing is source-specific: per-minute or minimum one hour with each started hour charged in full. Never infer the period from an hourly price label.
+Planning: compare_compute_costs compares billed GPU cost for explicit candidates and duration; it is not a benchmark or creation approval. Check existing list_instances before renting: multiple approved commands can use the same running rental within its existing budget, time and idle limits. Separate run_job calls each provision and release independently; prepare_job_rerun does not reuse a live GPU. Never extend limits or keep idle GPUs merely to consume prepaid time.
 Batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
 Task recipes: list_task_templates and prepare_task_template return local read-only drafts, never a paid submission. Check prerequisites, quote and obtain explicit approval before run_job. Prefer local CPU processing when a GPU is unnecessary.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
@@ -72,6 +74,7 @@ The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
 registerTaskTemplateTools(server, {wrap, ok});
+registerComputePlanningTools(server,{api,wrap,ok});
 registerBatchTools(server,{api,cfg,wrap,ok});
 registerStorageTools(server, { api, wrap, ok, fail, readOnly: cfg.readOnly, expandHome });
 registerJobResultTools(server, { api, wrap, ok, readOnly: cfg.readOnly });
@@ -191,7 +194,7 @@ server.registerTool(
         available: r.available,
         min_gpu_count: r.min_gpu_count,
       })),
-      note: "Billed per minute. 'available' is live and can change before you rent.",
+      note: "Billing periods vary by allocated source. Call estimate_cost for the minimum charge and billing increment. 'available' is live and can change before you rent.",
     });
   }),
 );

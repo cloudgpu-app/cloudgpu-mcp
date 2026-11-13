@@ -6,10 +6,11 @@ Copy this file into your project as `AGENTS.md`, `.cursor/rules/cloudgpu.md` or 
 ## Before renting
 
 1. Call `get_account` and `list_gpus`. Pick a GPU with enough VRAM for the job, and don't rent more GPU than the job needs. As a rough guide, LoRA on a 7–8B model fits in 24 GB, and a full fine-tune of the same model needs 80 GB or more.
-2. Call `estimate_cost` with a realistic number of hours.
+2. Check `list_instances` for an existing approved running rental. If a new rental is needed, optionally use `compare_compute_costs` for up to eight compatible GPUs, then call `estimate_cost` with a realistic duration including preparation, model downloads and result collection. A comparison is not a creation quote or benchmark.
 3. Show the user a short quote before you rent anything:
    - the GPU and how many,
    - the price per hour,
+   - the billing increment and minimum charge (some sources charge a minimum one hour and each started hour in full),
    - the estimated hours and cost,
    - the budget and time limit you will set,
    - their balance after the job.
@@ -37,7 +38,7 @@ Copy this file into your project as `AGENTS.md`, `.cursor/rules/cloudgpu.md` or 
 For a batch task that is one command (a training script, a render, a batch of inference), `run_job` is simpler than renting an instance: CloudGPU starts the GPU, runs the command, and destroys the GPU when it finishes, even if you disconnect.
 
 - Get the user's yes on the GPU, the budget and the time limit first, as for renting.
-- The GPU's disk is erased when the job ends. The command must upload its results itself (for example to the user's own S3 bucket, with credentials the user gave for that) or print them. `get_job` returns the last ~4 KB of output.
+- The GPU's disk is erased when the job ends. When automatic output collection is available, declare explicit outputs under `$CLOUDGPU_OUTPUT_DIR` and inspect collection status and ready file IDs. Otherwise save results explicitly before release. Never print credentials or assume a rental billing quote proves Job/template compatibility. `get_job` returns the last ~4 KB of output.
 - If `run_job` times out or the connection drops, call it again with the same `idempotency_key`. You get the same job back; a second GPU is not started.
 - Check progress with `get_job` every minute or so. `needs_attention` means CloudGPU stopped the job to check something by hand; tell the user and do not resubmit it.
 
@@ -47,7 +48,7 @@ Call `connect_account` with a name for yourself and the spending limit the user 
 
 ## Finishing (always)
 
-1. Download every result: model weights, adapters, checkpoints, logs, metrics. Destroying an instance erases its disk, and CloudGPU has no persistent storage.
+1. Download every result: model weights, adapters, checkpoints, logs, metrics. Destroying an instance erases its disk. Files explicitly uploaded to Workspace persist under its quota and retention policy; an instance disk is not automatically backed up. Confirm uploads completed and files are ready before release. Storage charges are separate from the GPU budget.
 2. Call `stop_instance`.
 3. Tell the user what ran, where the results are on their computer, and the final cost from `stop_instance`.
 
@@ -62,3 +63,7 @@ The same API key works for CloudGPU's OpenAI-compatible model API at `https://cl
 Use prepare_job_batch to review all tasks and the sum of their GPU budget caps before any submission. Storage charges are separate. run_job_batch requires explicit approval and the exact plan hash. Preserve the full approved manifest, stable batch key and receipt. A partial or unknown submission never permits a replacement key: replay the identical manifest to recover original Jobs. Never automatically retry failed execution or create a replacement GPU while release is uncertain. Batch preparation is not a reservation, and accepted Jobs are independent, not an atomic transaction. Unsubmitted members do not survive a client exit.
 
 Application recipes reuse prepared environments. ComfyUI protocol fixtures and LoRA orchestration fixtures are not real GPU or model-quality acceptance. No image/SDXL LoRA recipe is supplied. Never tell a user a template is production-validated based on these fixtures, or ask for credentials in workflow files.
+
+## Reuse a GPU across tasks
+
+A running rental can execute multiple approved commands sequentially using its instance ID and `run_command`; check status, ownership, available memory/disk and remaining original budget/deadline first. Do not use another team or personal account's resource. This does not extend its existing limits. Separate `run_job` calls and `prepare_job_rerun` do not reuse that rental. Persist results, stop when finished and reconcile release; do not retain idle GPUs just because an hour was charged. Crossing the next started hour incurs a further full-hour charge. No warm pool is promised.
