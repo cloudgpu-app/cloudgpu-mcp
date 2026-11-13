@@ -53,6 +53,6 @@ test('config hashing has a bounded file count and never fetches oversized JSON',
  const files=Array.from({length:9},(_,i)=>`config${i}.json`);let calls=0;
  await assert.rejects(()=>resolveModelReference({...input,files},async()=>{calls++;return new Response(JSON.stringify({sha,siblings:files.map(rfilename=>({rfilename,size:2}))}));}),/Too many/);
  assert.equal(calls,1);
- calls=0;const result=await resolveModelReference(input,async()=>{calls++;return new Response(JSON.stringify({sha,siblings:[{rfilename:'config.json',size:65537}]}));});
+ calls=0;const result=await resolveModelReference(input,async()=>{calls++;return new Response(JSON.stringify({sha,siblings:[{rfilename:'config.json',size:4*1024*1024+1}]}));});
  assert.equal(calls,1);assert.equal(result.files[0].sha256,undefined);
 });

@@ -11,7 +11,10 @@ export function configDir(env = process.env) {
 
 export function loadStoredKey(env = process.env) {
   try {
-    const j = JSON.parse(fs.readFileSync(path.join(configDir(env), "credentials.json"), "utf8"));
+    const file=path.join(configDir(env),"credentials.json"),stat=fs.lstatSync(file);
+    if(!stat.isFile()||stat.isSymbolicLink()||(stat.mode&0o077)||(process.getuid&&stat.uid!==process.getuid()))return null;
+    const j = JSON.parse(fs.readFileSync(file,"utf8"));
+    if(j.base_url!==(env.CLOUDGPU_BASE_URL||"https://cloudgpu.app"))return null;
     if (j && typeof j.api_key === "string" && j.api_key.trim()) {
       if (j.expires_at && Number(j.expires_at) * 1000 < Date.now()) return null;
       return j;
@@ -23,12 +26,29 @@ export function loadStoredKey(env = process.env) {
 }
 
 export function saveStoredKey(cred, env = process.env) {
+  cred={...cred,base_url:cred.base_url||(env.CLOUDGPU_BASE_URL||"https://cloudgpu.app")};
   const dir = configDir(env);
   fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const info=fs.lstatSync(dir);
+  if(!info.isDirectory()||info.isSymbolicLink()||(process.getuid&&info.uid!==process.getuid())||(info.mode&0o077))throw new Error('Credential directory must be private and owned by this user.');
   const file = path.join(dir, "credentials.json");
-  const tmp = file + ".tmp";
-  fs.writeFileSync(tmp, JSON.stringify(cred, null, 2), { mode: 0o600 });
-  fs.renameSync(tmp, file);
-  fs.chmodSync(file, 0o600);
+  const tmp = file + "."+process.pid+"."+Date.now()+".tmp";
+  try{fs.writeFileSync(tmp,JSON.stringify(cred,null,2),{flag:'wx',mode:0o600});fs.renameSync(tmp,file);fs.chmodSync(file,0o600);}finally{try{fs.unlinkSync(tmp);}catch{}}
   return file;
 }
+
+export function loadPendingConnect(baseUrl,env=process.env){
+  try{
+    const file=path.join(configDir(env),'pending-connect.json'),stat=fs.lstatSync(file);
+    if(!stat.isFile()||stat.isSymbolicLink()||(stat.mode&0o077)||(process.getuid&&stat.uid!==process.getuid()))return null;
+    const value=JSON.parse(fs.readFileSync(file,'utf8'));
+    return value.base_url===baseUrl&&/^[a-f0-9]{64}$/.test(value.device_code)&&Number.isFinite(value.until)&&value.until>Date.now()&&value.until<=Date.now()+1801000&&Number.isFinite(value.interval)&&value.interval>=5?value:null;
+  }catch{return null;}
+}
+export function savePendingConnect(value,env=process.env){
+  const dir=configDir(env);fs.mkdirSync(dir,{recursive:true,mode:0o700});
+  if(fs.lstatSync(dir).isSymbolicLink())throw new Error('Credential directory must not be a symlink.');
+  const file=path.join(dir,'pending-connect.json'),tmp=file+'.'+process.pid+'.'+Date.now()+'.tmp';
+  try{fs.writeFileSync(tmp,JSON.stringify(value),{flag:'wx',mode:0o600});fs.renameSync(tmp,file);fs.chmodSync(file,0o600);}finally{try{fs.unlinkSync(tmp);}catch{}}
+}
+export function clearPendingConnect(env=process.env){try{fs.unlinkSync(path.join(configDir(env),'pending-connect.json'));}catch{}}

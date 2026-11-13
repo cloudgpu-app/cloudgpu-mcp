@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import {registerFundingTools} from "./funding-tools.js";
+import {registerAgentReadinessTools} from "./agent-readiness.js";
 import {rentalBilling} from "./rental-billing.js";
 import {registerComputePlanningTools} from './compute-planning.js';
 import {registerTaskPipelineTools} from './task-pipelines.js';
@@ -23,7 +25,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { CloudGpuApi, ApiError } from "./api.js";
 import { SshPool, exec, upload, download, writeFile } from "./ssh.js";
-import { loadStoredKey, saveStoredKey } from "./credentials.js";
+import { loadStoredKey, saveStoredKey, loadPendingConnect, savePendingConnect, clearPendingConnect } from "./credentials.js";
 import crypto from "node:crypto";
 import { registerStorageTools } from "./storage.js";
 import { registerJobResultTools } from "./job-results.js";
@@ -38,7 +40,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.15.0";
+const VERSION = "0.16.0";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -75,6 +77,8 @@ No API key yet? connect_account gives the user a link to approve this assistant 
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
+registerFundingTools(server,{api,wrap,ok,readOnly:cfg.readOnly});
+registerAgentReadinessTools(server,{api,wrap,ok});
 registerTaskTemplateTools(server, {wrap, ok});
 registerComputePlanningTools(server,{api,wrap,ok});
 registerTaskPipelineTools(server,{cfg,wrap,ok});
@@ -101,7 +105,7 @@ function wrap(fn) {
       if (err instanceof ApiError) {
         let hint = "";
         if (err.status === 401) hint = " Check CLOUDGPU_API_KEY (create one at https://cloudgpu.app/api).";
-        if (err.status === 402) hint = " Top up at https://cloudgpu.app/billing.";
+        if (err.status === 402) hint = " Call request_top_up to give the owner a payment link, then wait_for_funds. Never submit or repeat a paid task before approval.";
         return fail(`CloudGPU API error ${err.status} ${err.code}: ${err.message}${hint}`);
       }
       return fail(`Error: ${err && err.message ? err.message : String(err)}`);
@@ -245,7 +249,7 @@ server.registerTool(
     if (offer.available === "low") warnings.push("Only a few of these are free; renting may fail.");
     if (balance != null && balance < estimate * 1.1) {
       warnings.push(
-        `Balance $${balance} does not cover the estimate plus a 10% buffer. When the balance runs out the instance is destroyed and its disk erased. Top up at https://cloudgpu.app/billing.`,
+        `Balance $${balance} does not cover the estimate plus a 10% buffer. When the balance runs out the instance is destroyed and its disk erased. Call request_top_up and wait_for_funds; obtain approval before continuing.`,
       );
     }
     const quote_id = quotes.put({ gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate, billingQuoteId:billing.billingQuoteId, billingExpiresAt:billing.expiresAt, minimumChargeUsd:Number(billing.minimumChargeUsd), billingIncrementSeconds:increment });
@@ -293,7 +297,7 @@ server.registerTool(
 
 // ── connect (get a key with a budget, approved in the browser) ──────────────
 
-let pendingConnect = null;
+let pendingConnect = loadPendingConnect(cfg.baseUrl);
 
 server.registerTool(
   "connect_account",
@@ -312,8 +316,11 @@ server.registerTool(
   },
   wrap(async ({ agent_name, spend_limit_usd, max_concurrent = 1, expires_in_days = 30 }) => {
     const r = await api.connectStart({ agent_name, spend_limit_usd, max_concurrent, expires_in_days });
-    pendingConnect = { device_code: r.device_code, until: Date.now() + Number(r.expires_in || 600) * 1000, interval: Number(r.interval || 5) };
+    pendingConnect = { device_code: r.device_code, until: Date.now() + Number(r.expires_in || 1800) * 1000, interval: Number(r.interval || 5) };
+    savePendingConnect({...pendingConnect,base_url:cfg.baseUrl});
     return ok({
+      google_link: r.google_link || r.verification_uri_complete,
+      email_link: r.verification_uri_complete+"&provider=email",
       link: r.verification_uri_complete,
       code: r.user_code,
       expires_in_seconds: r.expires_in,
@@ -349,7 +356,7 @@ server.registerTool(
         });
         cfg.apiKey = cred.api_key;
         api.apiKey = cred.api_key;
-        pendingConnect = null;
+        pendingConnect = null;clearPendingConnect();
         return ok({
           connected: true,
           agent_name: cred.agent_name,
@@ -367,7 +374,7 @@ server.registerTool(
         if (err instanceof ApiError && err.code === "authorization_pending") {
           return fail("Not approved yet. Ask the user to open the link and approve, then call finish_connect again.");
         }
-        if (err instanceof ApiError && (err.code === "access_denied" || err.code === "expired_token")) pendingConnect = null;
+        if (err instanceof ApiError && (err.code === "access_denied" || err.code === "expired_token")){pendingConnect = null;clearPendingConnect();}
         throw err;
       }
     }
@@ -482,7 +489,7 @@ if (!cfg.readOnly) {
       const needed = round2(Math.min(max_spend_usd, quote.estimate) * 1.1);
       if (balance < needed) {
         return fail(
-          `Not rented: balance $${balance} is below $${needed} (the estimate or budget plus 10%). If the balance runs out the instance is destroyed and its disk erased. Top up at https://cloudgpu.app/billing.`,
+          `Not rented: balance $${balance} is below $${needed} (the estimate or budget plus 10%). If the balance runs out the instance is destroyed and its disk erased. Call request_top_up and wait_for_funds; obtain approval before continuing.`,
         );
       }
       const body = {
