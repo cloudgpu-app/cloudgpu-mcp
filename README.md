@@ -407,3 +407,7 @@ Multipart resume keeps the same reservation and original file hash. GPU restore 
 The Python SDK and optional framework adapters are under [`python/`](python/README.md). PyPI publication requires an owner-configured Trusted Publisher. Real LangChain Core 1.8.0, OpenAI Agents SDK 0.24.0 and CrewAI 1.6.1 tool/invocation and anonymous HTTP acceptance passed; no paid model or GPU operation was used. See the Python README for exact scope and reproduction.
 
 The reviewed [Python SDK0.1.0 release](https://github.com/cloudgpu-app/cloudgpu-mcp/releases/tag/python-v0.1.0) has a public wheel, source distribution and SHA256SUMS. The public wheel was downloaded and its checksum and ten SDK tests passed. PyPI is not yet configured; use the exact release URL rather than an unrelated package. Hermes root installation and existing-owner private connection/catalog acceptance passed after packaging/profile fixes in cloudgpu-app/hermes-cloudgpu#5.
+
+### Reproducible paid task cases
+
+See [environment check, synthetic causal-LM LoRA and tiny ComfyUI video cases](examples/verified-tasks/README.md) for pinned scripts, observed fees, download checksums and release evidence. They preview locally by default; paid submission needs owner approval. Resume an accepted Job by ID to download results without another GPU. For persistent tasks, `assess_task_fit` accepts `expected_output_bytes`; current direct collection and bounded network fallback limits are returned by the live contract.
