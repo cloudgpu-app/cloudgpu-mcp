@@ -21,7 +21,7 @@ Copy this file into your project as `AGENTS.md`, `.cursor/rules/cloudgpu.md` or 
 - Always set `max_spend_usd` and `max_hours`. CloudGPU's servers destroy the instance when either is reached, even if you have disconnected.
 - Keep `idle_minutes` on (default 60). Raise it if setup will take long, because installing packages and downloading models leave the GPU idle.
 - Call `get_status` at intervals, not in a tight loop, until the instance is `running`.
-- `failed` instances are not charged. Tell the user, then offer another GPU.
+- On failure, inspect actual charges and independent release evidence. A failed platform status is not proof of release or zero cost; do not automatically create a replacement.
 
 ## Working on the instance
 
@@ -52,7 +52,7 @@ Call `connect_account` with a name for yourself and the spending limit the user 
 2. Call `stop_instance`.
 3. Tell the user what ran, where the results are on their computer, and the final cost from `stop_instance`.
 
-If anything goes wrong mid-way, do not leave the instance running. Download whatever exists, stop the instance, then explain what happened.
+For an instance created specifically for this approved task, preserve results and request release if it fails. An existing user instance keeps its original lifecycle: failure to apply files or run one step does not authorize stopping it. Inspect and ask the owner before changing its lifecycle.
 
 ## Only need a model, not a GPU?
 
@@ -67,3 +67,7 @@ Application recipes reuse prepared environments. ComfyUI protocol fixtures and L
 ## Reuse a GPU across tasks
 
 A running rental can execute multiple approved commands sequentially using its instance ID and `run_command`; check status, ownership, available memory/disk and remaining original budget/deadline first. Do not use another team or personal account's resource. This does not extend its existing limits. Separate `run_job` calls and `prepare_job_rerun` do not reuse that rental. Persist results, stop when finished and reconcile release; do not retain idle GPUs just because an hour was charged. Crossing the next started hour incurs a further full-hour charge. No warm pool is promised.
+
+## Shared-allocation task drafts
+
+Use `prepare_task_pipeline` to review up to eight sequential commands for one Job, with one overall approved budget and deadline, stopping later steps after failure. It is read-only preparation, not a paid submission or automatic retry. Independent Jobs still provision separately. Optional pipeline-summary.json collection does not collect arbitrary task results; approve their persistence separately. No installed dependencies, model quality, or whole-hour Job compatibility are inferred.
