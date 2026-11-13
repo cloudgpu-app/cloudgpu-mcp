@@ -394,11 +394,11 @@ For an existing rental, the reviewed command can instead be passed to `run_comma
 
 With `persist_summary=true`, the Job draft explicitly collects only `pipeline-summary.json` through the existing output collector, using current storage quota/retention and `accept_storage_charges=false`. The summary contains step IDs, exit codes and state, not raw logs, commands or arbitrary task results. Result-file persistence must be configured and approved separately. The summary must not already exist; missing output collection or a conflicting file aborts before commands run.
 
-### Candidate 0.16.0: funded connection and storage growth
+### Funded connection, storage growth and remote MCP
 
-This branch is a candidate, not a claim that npm, Registry or production have been updated. The current stdio inventory is 54 tools; remote MCP intentionally exposes only operations safe without local filesystem/SSH access. Always check live backend capabilities.
+Version 0.16.0 was verified on npm and the official Registry on 2026-11-13. The current stdio inventory is 54 tools. The remote endpoint at `https://cloudgpu.app/mcp` uses Streamable HTTP JSON responses and OAuth authorization code with S256 PKCE; it exposes 20 tools safe without local filesystem/SSH access. Public discovery needs no login; account and paid operations require scoped owner authorization. Always check live backend capabilities and actual source-specific billing.
 
-`connect_account` returns a direct Google link and email alternative. Pending connection state is private, origin-bound and survives restart; the server candidate extends approval time to 30 minutes. Browser payment does not approve compute. `request_top_up` creates only a short-lived owner link; `wait_for_funds` requires a real credit signal and sufficient live balance. Neither creates a Job.
+`connect_account` returns a direct Google link and email alternative. Pending connection state is private, origin-bound and survives restart; the server allows 30 minutes for approval. Browser payment does not approve compute. `request_top_up` creates only a short-lived owner link; `wait_for_funds` requires a real credit signal and sufficient live balance. Neither creates a Job.
 
 Dedicated storage budget is a separate, explicitly confirmed wallet reservation, consumed only by actual UTC daily peak usage. Unused surplus can return after existing files, uploads and pending daily charges remain covered. It is not revenue or an automatic refill. Capacity can grow with budget, subject to published technical limits, and retention remains 30 days. Budget-limited Agent keys cannot reserve funds or consent to paid storage. Disabling new self-service transfers must not disable accounting for existing reserves.
 
