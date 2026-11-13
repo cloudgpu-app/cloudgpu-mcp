@@ -14,6 +14,8 @@ export function jobInputShape(cfg){return {
           accept_storage_charges: z.boolean().optional(),
         }).strict().optional().describe("Explicit relative output files under $CLOUDGPU_OUTPUT_DIR; no globs, symlinks, hidden or credential files. Default total limit 10 MiB, maximum 100 MiB. Only set accept_storage_charges=true after the user agrees to existing paid storage terms. Inspect output_collection after completion; the GPU is released even if saving fails."),
         quote_id: z.string().optional().describe("Server quote from quote_compute, starting quote_; binds configuration and checks price at submission"),
+        billing_quote_id: z.string().regex(/^[a-f0-9-]{36}$/).optional().describe("Accepted source-specific billing quote from estimate_cost; expires after five minutes. Required for whole-hour sources."),
+        billing_accepted: z.boolean().optional().describe("true only after the user accepts the quoted minimum and billing period; budget must cover that minimum"),
         max_spend_usd: z.number().positive().describe(`Budget for this job in USD (at most ${cfg.maxSpend})`),
         max_hours: z.number().positive().describe(`Hard time limit in hours (at most ${cfg.maxHours})`),
         user_confirmed: z.boolean().describe("true only if the user explicitly approved the GPU, budget and time limit"),

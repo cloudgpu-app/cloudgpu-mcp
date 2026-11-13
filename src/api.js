@@ -111,6 +111,19 @@ export class CloudGpuApi {
     if (body.model_references?.length) return this.createModelJob(body,idempotencyKey);
     return this.request("POST", "/v1/jobs", body, { idempotencyKey });
   }
+  async createServerJobBatch(body,idempotencyKey) {
+    if(!idempotencyKey)throw new Error("Server batch requires a stable idempotency key");
+    const readiness=await this.request("GET","/v1/public/agent-self-check",undefined,{noAuth:true});
+    if(readiness.durable_batch?.enabled!==true)throw new ApiError(503,"durable_batch_unavailable","Durable batch is unavailable; no client-side submission fallback was attempted.");
+    if(body.jobs.some(j=>j.outputs||j.model_references?.length)){
+      const caps=await this.request("GET","/v1/public/compute-capabilities",undefined,{noAuth:true});
+      if(body.jobs.some(j=>j.outputs)&&(caps.automatic_output_collection!==true||caps.storage!==true))throw new ApiError(503,"outputs_unavailable","Output persistence unavailable; no batch submitted.");
+      if(body.jobs.some(j=>j.model_references?.length)&&caps.model_references!==true)throw new ApiError(503,"model_references_unavailable","Pinned model loading unavailable; no batch submitted.");
+    }
+    return this.request("POST","/v1/job-batches",body,{idempotencyKey});
+  }
+  serverJobBatch(id) {if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid server batch id");return this.request("GET",`/v1/job-batches/${id}`);}
+  cancelServerJobBatch(id) {if(!/^[a-f0-9]{32}$/.test(id))throw Error("Invalid server batch id");return this.request("POST",`/v1/job-batches/${id}/cancel`,{});}
   async createOutputJob(body,idempotencyKey) {
     const caps=await this.request("GET","/v1/public/compute-capabilities",undefined,{noAuth:true});
     if(caps.automatic_output_collection!==true || caps.storage!==true)
