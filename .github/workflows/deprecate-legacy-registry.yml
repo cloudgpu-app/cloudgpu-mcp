@@ -16,4 +16,4 @@ jobs:
       - name: Authenticate repository identity and deprecate old namespace
         run: |
           ./mcp-publisher login github-oidc
-          ./mcp-publisher status --status deprecated --all-versions --message "Moved to io.github.cloudgpu-app/cloudgpu-mcp" io.github.mrhy7176/cloudgpu-mcp
+          printf 'y\n' | ./mcp-publisher status --status deprecated --all-versions --message "Moved to io.github.cloudgpu-app/cloudgpu-mcp" io.github.mrhy7176/cloudgpu-mcp
