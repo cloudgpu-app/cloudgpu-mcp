@@ -17,6 +17,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+      - name: Verify Python SDK without network or paid work
+        run: PYTHONPATH=python python3 -m unittest discover -s python/tests
       - run: node --check scripts/d13-joint-acceptance.mjs
       - name: Verify release manifest consistency and packaged files
         run: |

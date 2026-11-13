@@ -61,7 +61,9 @@ jobs:
       # Retry Registry publication even when npm already contains this version.
       - name: Publish to MCP Registry
         run: |
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.9/mcp-publisher_linux_amd64.tar.gz" -o publisher.tar.gz
+          echo "4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8  publisher.tar.gz" | sha256sum -c -
+          tar xzf publisher.tar.gz mcp-publisher
           ./mcp-publisher login github-oidc
           for i in 1 2 3 4 5; do
             ./mcp-publisher publish && exit 0

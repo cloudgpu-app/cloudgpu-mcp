@@ -23,10 +23,10 @@ export async function resolveModelReference({repo_id, revision = "main", name, f
     return {path,size_bytes:size,...(sha?{sha256:sha}:{})};
   });
   if(selected.reduce((n,f)=>n+f.size_bytes,0)>100_000_000_000)throw new Error("Model exceeds the first-version 100 GB job limit");
-  // Git-backed config files have no LFS SHA. Hash bounded public JSON metadata
+  // Git-backed tokenizer/config files have no LFS SHA. Bound each to 4 MiB and all to 8 MiB. Hash bounded public JSON metadata
   // on the origin so the GPU can verify it even when using its existing mirror.
-  const configs=selected.filter(f=>!f.sha256&&f.path.endsWith('.json')&&f.size_bytes<=65536);
-  if(configs.length>8)throw new Error('Too many unhashed JSON metadata files; supply an independently verified manifest');
+  const configs=selected.filter(f=>!f.sha256&&/\.(json|txt|model|tiktoken)$/.test(f.path)&&f.size_bytes<=4*1024*1024);
+  if(configs.length>8||configs.reduce((total,f)=>total+f.size_bytes,0)>8*1024*1024)throw new Error('Too many unhashed JSON metadata files; supply an independently verified manifest');
   const deadline=Date.now()+15000;
   for(const file of configs){
     const remaining=deadline-Date.now();

@@ -60,7 +60,7 @@ test('LoRA draft binds the pinned model, limits and exact adapter outputs; Pytho
  assert.match(p.run_job_draft.command,/local_files_only=True,trust_remote_code=False/);assert.match(p.run_job_draft.command,/HF_HUB_OFFLINE/);assert.doesNotMatch(p.run_job_draft.command,/pip install|git clone/);
  const source=p.run_job_draft.command.split("python3 - <<'CGPU_APPLICATION_RECIPE'\n")[1].split('CGPU_APPLICATION_RECIPE\n')[0];
  const child=spawn('python3',['-c','import ast,sys;ast.parse(sys.stdin.read())']);child.stdin.end(source);const code=await new Promise(r=>child.on('close',r));assert.equal(code,0);
- assert.match(p.validation,/real GPU training.*not yet accepted/);assert.equal(listTaskTemplates().templates.length,5);
+ assert.match(p.validation,/Real internal CUDA smoke/);assert.equal(listTaskTemplates().templates.length,5);
 });
 test('Recipe-specific inputs, injection, missing storage choice and unpinned weights fail before execution',()=>{
  const common={template_id:'comfyui-workflow',workspace_version_id:workspace,persist_results:true,workflow_path:'workflow.json'};

@@ -1,5 +1,15 @@
 import importlib.util,json,math,os,pathlib,stat
 
+def training_dtype(torch):
+    # Device capability alone does not guarantee the installed torch CUDA kernels.
+    if not torch.cuda.is_bf16_supported(): return torch.float32
+    try:
+        torch.triu(torch.ones((2,2),device='cuda',dtype=torch.bfloat16),diagonal=1)
+    except RuntimeError as error:
+        if 'not implemented' not in str(error): raise
+        return torch.float32
+    return torch.bfloat16
+
 def run(options, project_file, output_dir):
     # Reuse a reviewed image; do not reinstall CUDA/torch or run remote model code.
     if any(importlib.util.find_spec(m) is None for m in ['torch','transformers','peft','safetensors']):
@@ -23,7 +33,7 @@ def run(options, project_file, output_dir):
     os.environ['HF_HUB_OFFLINE']='1';os.environ['TRANSFORMERS_OFFLINE']='1';os.environ['HF_HUB_DISABLE_TELEMETRY']='1'
     torch.manual_seed(0)
     tokenizer=AutoTokenizer.from_pretrained(str(model_root),local_files_only=True,trust_remote_code=False)
-    dtype=torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float32
+    dtype=training_dtype(torch)
     model=AutoModelForCausalLM.from_pretrained(str(model_root),local_files_only=True,trust_remote_code=False,torch_dtype=dtype).to('cuda')
     model=get_peft_model(model,LoraConfig(r=options['rank'],lora_alpha=options['rank']*2,lora_dropout=0.05,bias='none',task_type='CAUSAL_LM',target_modules=options['target_modules']))
     model.train();optimizer=torch.optim.AdamW((p for p in model.parameters() if p.requires_grad),lr=options['learning_rate'])
@@ -43,4 +53,4 @@ def run(options, project_file, output_dir):
         p=output_dir/name
         if p.is_symlink() or not stat.S_ISREG(p.stat().st_mode) or p.stat().st_size<=0:
             raise ValueError('Expected adapter output missing')
-    return {'task':'causal-lm-lora','steps_completed':options['steps'],'records':len(texts),'last_loss':loss_value,'base_model':ref['repo_id'],'revision':ref['revision'],'rank':options['rank']}
+    return {'task':'causal-lm-lora','steps_completed':options['steps'],'records':len(texts),'last_loss':loss_value,'base_model':ref['repo_id'],'revision':ref['revision'],'rank':options['rank'],'training_dtype':str(dtype)}
