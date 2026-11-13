@@ -78,7 +78,7 @@ const COMMANDS = {
       "                     output in /root/cloudgpu-setup.log on the instance",
       "--wait               poll until the instance is running or failed, then print SSH and URLs",
       "--show-password      with --wait, also print the SSH password if the API returns one",
-      "Costs money: billing is per minute from your prepaid balance until the instance is destroyed.",
+      "Costs money: billing is source-specific. Hourly sources require a billing quote and explicit approval through MCP; never infer billing from the hourly price label.",
     ],
     options: {
       ...JSON_OPT,
@@ -557,7 +557,7 @@ async function cmdOffers(c) {
       offers.map((o) => [o.gpu_model, o.vram_gb != null ? `${o.vram_gb} GB` : null, usd(o.hourly_usd), o.available, o.min_gpu_count]),
     ),
   );
-  c.out("Prices and availability are live from the API and can change; billed per minute.\n");
+  c.out("Prices and availability are live and can change; billing periods vary by source. Use MCP estimate_cost for the minimum charge.\n");
   if (tpl && tpl.recommended_gpu) c.out(`Template ${tpl.id} recommends: ${tpl.recommended_gpu}\n`);
   return 0;
 }
@@ -611,7 +611,7 @@ async function cmdUp(c) {
       return 0;
     }
     c.out(`Created ${inst.id} (${gpuLabel(inst)}, status: ${inst.status}).\n`);
-    c.out(`Billing is per minute until it is destroyed. Check it with: cloudgpu status ${inst.id}\n`);
+    c.out(`Billing follows the approved source-specific terms until destroyed. Check it with: cloudgpu status ${inst.id}\n`);
     c.out(`Destroy it with: cloudgpu down ${inst.id}\n`);
     return 0;
   }
