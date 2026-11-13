@@ -1,0 +1,19 @@
+name: Deprecate legacy MCP Registry namespace
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  deprecate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install verified publisher
+        run: |
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.9/mcp-publisher_linux_amd64.tar.gz" -o publisher.tar.gz
+          echo "4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8  publisher.tar.gz" | sha256sum -c -
+          tar xzf publisher.tar.gz mcp-publisher
+      - name: Authenticate repository identity and deprecate old namespace
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher status --status deprecated --all-versions --message "Moved to io.github.cloudgpu-app/cloudgpu-mcp" io.github.mrhy7176/cloudgpu-mcp
