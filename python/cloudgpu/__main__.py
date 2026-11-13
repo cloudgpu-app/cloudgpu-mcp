@@ -3,7 +3,8 @@ from . import CloudGPU,CloudGPUError,private_text,read_private
 
 def hermes_env(client):
     # Only on explicit --hermes. Store locally; never echo the key.
-    path=pathlib.Path.home()/'.hermes/.env'
+    home=pathlib.Path(os.environ.get('HERMES_HOME',str(pathlib.Path.home()/'.hermes'))).expanduser()
+    path=home/'.env'
     path.parent.mkdir(parents=True,mode=0o700,exist_ok=True)
     if path.is_symlink():raise CloudGPUError('hermes_env_symlink_refused')
     value=client._key
