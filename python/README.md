@@ -1,8 +1,8 @@
-# CloudGPU Python candidate SDK
+# CloudGPU Python SDK 0.1.0
 
-A thin standard-library REST client for owner-approved Agent compute. This package is a candidate in this repository; **it is not yet published on PyPI**. It creates no standing infrastructure and never automatically charges a payment method or retries a Job submission.
+A thin standard-library REST client for owner-approved Agent compute. The reviewed wheel and source distribution are published at https://github.com/cloudgpu-app/cloudgpu-mcp/releases/tag/python-v0.1.0. **It is not yet published on PyPI**: the owner must configure the pending Trusted Publisher. It creates no standing infrastructure and never automatically charges a payment method or retries a Job submission.
 
-Install from a reviewed checkout with `pip install ./python`. Then run `cloudgpu check` without an account, or `cloudgpu connect --spend-limit 5`. Open the printed Google sign-in link, review/top up/approve in the browser; the key is stored privately, never printed. The limit is a cap, not a purchase. Run `cloudgpu connect --spend-limit 5 --hermes` to explicitly write the private local Hermes environment file as well. Both clients must use the same CloudGPU server origin. `--hermes` honors the official `HERMES_HOME` setting; when absent it uses `~/.hermes`. Existing private credentials in a different Hermes profile are not overwritten.
+Install the released wheel with `python -m pip install https://github.com/cloudgpu-app/cloudgpu-mcp/releases/download/python-v0.1.0/cloudgpu-0.1.0-py3-none-any.whl`, or from a reviewed checkout with `pip install ./python`. Then run `cloudgpu check` without an account, or `cloudgpu connect --spend-limit 5`. Open the printed Google sign-in link, review/top up/approve in the browser; the key is stored privately, never printed. The limit is a cap, not a purchase. Run `cloudgpu connect --spend-limit 5 --hermes` to explicitly write the private local Hermes environment file as well. Both clients must use the same CloudGPU server origin. `--hermes` honors the official `HERMES_HOME` setting; when absent it uses `~/.hermes`. Existing private credentials in a different Hermes profile are not overwritten.
 
 ```python
 from cloudgpu import CloudGPU
