@@ -58,8 +58,12 @@ jobs:
           done
           echo "npm version not visible" >&2; exit 1
 
-      # Retry Registry publication even when npm already contains this version.
+      # 已存在的不可变版本先核对，避免重跑时误报“重复版本”。
+      - name: Check existing MCP Registry publication
+        id: registrycheck
+        run: node scripts/registry-publication.mjs
       - name: Publish to MCP Registry
+        if: steps.registrycheck.outputs.published != 'true'
         run: |
           curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/download/v1.8.9/mcp-publisher_linux_amd64.tar.gz" -o publisher.tar.gz
           echo "4d527ca8f1ced0394c962dc925c2a4a4addef441cbefd62501c875e9481823a8  publisher.tar.gz" | sha256sum -c -
@@ -70,3 +74,6 @@ jobs:
             echo "publish attempt $i failed, retrying"; sleep 15
           done
           exit 1
+
+      - name: Verify public Registry version and latest alias
+        run: node scripts/registry-publication.mjs --required
