@@ -1,7 +1,15 @@
 import {z} from "zod";
 
 /** Discovery only; no implicit owner geolocation, quote, procurement or data migration. */
+export const CONTINENTS=["asia","europe","north_america","oceania","south_america","africa"];
 export function registerRegionalOfferTools(server,{api,wrap,ok}){
+  server.registerTool("list_rental_regions",{
+    title:"List rentable GPUs by continent",
+    description:"Read-only qualified continent catalog shared with the rental UI. Use enabled and inventory/capability/count constraints. Request estimate_cost with the same continent before renting. Countries and individual datacenters are not selectable. Empty inventory does not authorize renting in another continent.",
+    inputSchema:{continent:z.enum(CONTINENTS).optional()},
+    annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:true},
+  },wrap(async ({continent})=>ok(await api.request("GET","/v1/public/rental-regions"+(continent?"?continent="+encodeURIComponent(continent):""),undefined,{noAuth:true}))));
+
   server.registerTool("list_regional_offers",{
     title:"Inspect regional compute observations",
     description:"Anonymous, read-only native regional stock observations, independent price evidence ages, billing references and known/unknown limits. Supply the human owner's country explicitly; the Agent server IP is not its owner's location. Counts are not reservations or verified single-host multi-GPU allocations. Published SKU references are not region-bound executable quotes; dynamic regional pricing and exact-region execution are not activated. Unsupported, stale or failed observations do not prove global stockout. Follow has_more/next_after_id; pagination is a live view, not a frozen snapshot.",

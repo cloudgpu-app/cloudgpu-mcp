@@ -168,6 +168,7 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | `get_job` / `list_jobs` | Job status, exit code, cost, the last ~4 KB of output and the job's history |
 | `cancel_job` | Stops a job and destroys its GPU |
 | `get_agent_readiness` / `assess_task_fit` | Anonymous capability, billing, task suitability and evidence checks; no GPU is created |
+| `list_rental_regions` | Anonymous qualified continent catalog; use its enabled flag, then a continent-bound rental quote |
 | `list_regional_offers` | Anonymous native regional inventory observations and independent price evidence; explicit owner country, freshness, unknowns and overlapping capacity; planning only |
 | `request_top_up` / `wait_for_funds` | Human-only payment link and bounded polling for actual credit; no automatic charge or Job |
 | `quote_storage_budget` / `confirm_storage_budget` | Quote and explicitly approve an earmarked storage transfer; backend rollout and owner permissions apply |
@@ -452,11 +453,20 @@ or missing observations do not prove zero stock. Counts are not reservations
 or proof that multiple cards can be allocated on one host. Capacity groups are
 known aliases only; do not sum them into an independent global total.
 
-This first regional data release cannot execute a region-bound order or change
-retail pricing. A published SKU reference is not a regional executable quote.
-If the task requires a specific location, stop before renting: the current
-standard transaction routes reject unsupported placement fields. MCP also
+Native regional observations do not authorize execution or change retail
+pricing. A published SKU reference is not an executable quote. For a hard
+continent constraint, use the separately advertised rental capability below.
+Country/datacenter constraints remain unsupported and must not be dropped. MCP also
 rejects unknown argument fields instead of silently stripping them. Tasks that
 do not require a location continue to use fresh standard quotes and their
 source-specific billing/approval rules. No native mounted-volume product is
 offered; Workspace still uses explicit file snapshots and restore.
+
+
+## Continent-constrained rentals
+
+Check anonymous `GET /v1/public/rental-regions` (MCP `list_rental_regions`) first. This staged capability is available only when its response says `enabled: true`. Select one of `asia`, `europe`, `north_america`, `oceania`, `south_america`, `africa`; country and datacenter selection are not supported. With no qualified supply, do not infer a region from the unfiltered legacy catalogue or the Agent's IP.
+
+For a rental, pass the same `continent` to `estimate_cost` / `POST /v1/gpu/billing-quote`, then obtain explicit approval and pass it with the exact `billing_quote_id` and `billing_accepted: true` to `POST /v1/gpu/instances`. The stdio client's `create_instance` carries the approved continent automatically. Changes or missing continent bindings require a new quote. Minimum billing periods are unchanged; there is no automatic cross-continent fallback.
+
+The generic `POST /v1/quotes`, Jobs and batches do not yet accept a hard continent constraint. Do not drop that constraint or substitute an unconstrained Job. Dynamic aggregate pricing remains an internal calculation module pending qualified supplier cost feeds and end-to-end billing activation; these endpoints do not promise an active global market.
