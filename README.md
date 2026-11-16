@@ -168,6 +168,7 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | `get_job` / `list_jobs` | Job status, exit code, cost, the last ~4 KB of output and the job's history |
 | `cancel_job` | Stops a job and destroys its GPU |
 | `get_agent_readiness` / `assess_task_fit` | Anonymous capability, billing, task suitability and evidence checks; no GPU is created |
+| `get_storage_options` | Anonymous storage availability, billing and retention; distinguishes snapshots from mounted volumes; creates no resources |
 | `request_top_up` / `wait_for_funds` | Human-only payment link and bounded polling for actual credit; no automatic charge or Job |
 | `quote_storage_budget` / `confirm_storage_budget` | Quote and explicitly approve an earmarked storage transfer; backend rollout and owner permissions apply |
 | `resume_artifact_upload` | Resume the same owned multipart reservation with the original local file and checksum |
@@ -203,7 +204,17 @@ The key also works with the OpenAI-compatible API at `https://cloudgpu.app/v1`. 
 
 ## Optional persistent files and Workspaces
 
-These tools require persistent storage to be explicitly enabled on the server;
+`get_storage_options` is an anonymous read-only check of `GET /v1/public/storage-options`.
+It reports actual availability; it cannot purchase a mounted persistent volume.
+Pass `requires_mounted_persistent_volume=true` to `assess_task_fit` when the task
+needs a live mounted filesystem; explicit output snapshots do not meet that need.
+A native volume remains unavailable until a compatible GPU/volume pair, retention,
+billing and reattachment have passed acceptance. An unknown price is not zero,
+and the Workspace price does not apply to a native volume. This tool needs the
+server endpoint introduced with this release; a 404 is an unavailable endpoint,
+not proof of supported storage. Existing released versions do not include it.
+
+The account and file tools below require persistent storage to be explicitly enabled on the server;
 they return `storage_not_enabled` until it is ready. Discover server capabilities
 at `/v1/public/compute-capabilities`. Read `get_storage` for current included allowance, quota, prices and retention. Storage fees are separate from GPU Job budgets. Uploads above the included allowance require `accept_storage_charges=true` after user agreement; the default is false. Budget-limited connect-link keys cannot enable paid storage. Files expose `expires_at`; downloading does not renew retention. Versions containing expired files become unavailable, while active Jobs defer deletion.
 
