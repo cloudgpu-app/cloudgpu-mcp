@@ -168,6 +168,7 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | `get_job` / `list_jobs` | Job status, exit code, cost, the last ~4 KB of output and the job's history |
 | `cancel_job` | Stops a job and destroys its GPU |
 | `get_agent_readiness` / `assess_task_fit` | Anonymous capability, billing, task suitability and evidence checks; no GPU is created |
+| `list_regional_offers` | Anonymous native regional inventory observations and independent price evidence; explicit owner country, freshness, unknowns and overlapping capacity; planning only |
 | `request_top_up` / `wait_for_funds` | Human-only payment link and bounded polling for actual credit; no automatic charge or Job |
 | `quote_storage_budget` / `confirm_storage_budget` | Quote and explicitly approve an earmarked storage transfer; backend rollout and owner permissions apply |
 | `resume_artifact_upload` | Resume the same owned multipart reservation with the original local file and checksum |
@@ -439,3 +440,23 @@ Use `prepare_job_batch` to review every command, fresh compute quote, deadline a
 REST equivalents: `POST /v1/job-batches` with `Idempotency-Key`, `total_budget_usd` and 1–32 `jobs`; `GET /v1/job-batches/{batch_id}`; `POST /v1/job-batches/{batch_id}/cancel`. The MCP reviewed manifest remains capped at eight children. Replaying the identical key/body returns the existing children. Existing `run_job_batch` retains its explicitly non-atomic client submission behavior for compatibility; the server tool never falls back to it.
 
 For whole-hour Jobs, call `estimate_cost` for the exact configuration and accept the minimum/billing period. Supply its `billing_quote_id` plus `billing_accepted=true` to `run_job` or each batch child, in addition to the compute `quote_id` and execution approval. Each allocation needs a separate current billing quote. The Job cap must cover the minimum; elapsed portions of a started hour are not voluntarily refunded. Billing quotes last five minutes: an expired queued Job fails without allocation and requires a new reviewed request. It is never silently renewed or routed under different billing terms. Recovery uses durable provider receipts and independent upstream presence checks; ambiguous intents remain `needs_attention`.
+
+### Regional facts before a compute decision
+
+`list_regional_offers` calls anonymous `GET /v1/public/compute-offers`. Give the
+human owner country explicitly as `user_country`; an Agent's hosting location
+is not its owner's location. Optional filters are `country_code`, `gpu_model`,
+`gpu_count`, `include_unavailable`, `limit` and the returned `after_id` cursor.
+Stock and source-price evidence have separate ages. Failed, stale, unsupported
+or missing observations do not prove zero stock. Counts are not reservations
+or proof that multiple cards can be allocated on one host. Capacity groups are
+known aliases only; do not sum them into an independent global total.
+
+This first regional data release cannot execute a region-bound order or change
+retail pricing. A published SKU reference is not a regional executable quote.
+If the task requires a specific location, stop before renting: the current
+standard transaction routes reject unsupported placement fields. MCP also
+rejects unknown argument fields instead of silently stripping them. Tasks that
+do not require a location continue to use fresh standard quotes and their
+source-specific billing/approval rules. No native mounted-volume product is
+offered; Workspace still uses explicit file snapshots and restore.

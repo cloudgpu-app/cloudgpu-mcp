@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import {registerFundingTools} from "./funding-tools.js";
 import {registerAgentReadinessTools} from "./agent-readiness.js";
+import {registerRegionalOfferTools} from "./regional-offers.js";
+import {useStrictToolInputs} from "./strict-tools.js";
 import {rentalBilling} from "./rental-billing.js";
 import {registerComputePlanningTools} from './compute-planning.js';
 import {registerTaskPipelineTools} from './task-pipelines.js';
@@ -40,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.3";
+const VERSION = "0.16.4";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -66,6 +68,7 @@ const quotes = new Quotes();
 const session = new Map();
 
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) provides GPU compute scheduling for AI agents from a prepaid balance. Billing is source-specific: per-minute or minimum one hour with each started hour charged in full. Never infer the period from an hourly price label.
+Regional discovery: list_regional_offers reads native observations with separate stock/price ages and explicit unknowns. Supply the owner country explicitly, never the Agent egress IP. This is planning only: exact-region allocation and dynamic regional retail are not yet enabled. Never use a standard rental for a hard location requirement; unsupported placement fields are refused.
 Planning: compare_compute_costs compares billed GPU cost for explicit candidates and duration; it is not a benchmark or creation approval. Check existing list_instances before renting: multiple approved commands can use the same running rental within its existing budget, time and idle limits. Separate run_job calls each provision and release independently; prepare_job_rerun does not reuse a live GPU. Never extend limits or keep idle GPUs merely to consume prepaid time.
 Server batches: prepare_job_batch also prepares the exact manifest for run_server_job_batch. The new tool atomically enqueues on the server, persists across client/server restarts, and requires an aggregate cap and individually approved billing. Use get_server_job_batch/cancel_server_job_batch; never substitute client partial submission when unavailable. No automatic failed-command retries.
 Legacy client batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
@@ -78,8 +81,10 @@ No API key yet? connect_account gives the user a link to approve this assistant 
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
 const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
+useStrictToolInputs(server);
 registerFundingTools(server,{api,wrap,ok,readOnly:cfg.readOnly});
 registerAgentReadinessTools(server,{api,wrap,ok});
+registerRegionalOfferTools(server,{api,wrap,ok});
 registerTaskTemplateTools(server, {wrap, ok});
 registerComputePlanningTools(server,{api,wrap,ok});
 registerTaskPipelineTools(server,{cfg,wrap,ok});
