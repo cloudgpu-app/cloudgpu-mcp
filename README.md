@@ -153,7 +153,7 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | Tool | What it does |
 |---|---|
 | `get_account` | Balance, and how many instances the account may run at once |
-| `list_gpus` | GPU models with VRAM, live price per GPU-hour and availability |
+| `list_gpus` | GPU models, live starting rates, availability and detailed native configurations (GPU count, CPU, RAM, disks, region, interconnect and total hourly price) when available |
 | `list_templates` | Ready-made images: JupyterLab, Ollama, ComfyUI, LLaMA-Factory, … |
 | `compare_compute_costs` | Compare live total billed GPU cost for up to eight compatible candidates; no reservation or creation approval |
 | `estimate_cost` | Live quote for a GPU and a number of hours, plus your balance afterwards; returns a `quote_id` |
@@ -470,3 +470,8 @@ Check anonymous `GET /v1/public/rental-regions` (MCP `list_rental_regions`) firs
 For a rental, pass the same `continent` to `estimate_cost` / `POST /v1/gpu/billing-quote`, then obtain explicit approval and pass it with the exact `billing_quote_id` and `billing_accepted: true` to `POST /v1/gpu/instances`. The stdio client's `create_instance` carries the approved continent automatically. Changes or missing continent bindings require a new quote. Minimum billing periods are unchanged; there is no automatic cross-continent fallback.
 
 The generic `POST /v1/quotes`, Jobs and batches do not yet accept a hard continent constraint. Do not drop that constraint or substitute an unconstrained Job. Dynamic aggregate pricing remains an internal calculation module pending qualified supplier cost feeds and end-to-end billing activation; these endpoints do not promise an active global market.
+### Detailed GPU configurations
+
+`list_gpus` preserves the REST `/v1/gpu/offers` configuration data. `usd_per_gpu_hour` is a starting per-card rate; each `configurations[].hourlyPrice` is the **whole instance** price for `gpuCount` cards. Each entry includes per-card VRAM, CPU/RAM, system/local disk, interconnect, continent, current availability, billing minimum/increment in seconds and observation time in Unix milliseconds where supplied. Missing fields mean unknown.
+
+`inventory_count_exact: false` means the source reports configuration availability, not a count of machines. Do not add overlapping 1/2/4/8-card alternatives or treat them as reserved stock. A catalog entry can be unavailable while retained for discovery. `estimate_cost` for the chosen card count remains required; GPU catalog membership does not imply Job or template compatibility.

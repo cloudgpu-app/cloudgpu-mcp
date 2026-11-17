@@ -185,7 +185,7 @@ server.registerTool(
   {
     title: "List GPUs",
     description:
-      "GPU models you can rent now, with VRAM, live price per GPU-hour in USD and availability (ok / low / none). Prices are live; never assume them.",
+      "GPU catalog with per-card VRAM, live starting price in USD, availability, and native configurations (GPU count, CPU, RAM, disks, region, interconnect and whole-instance price) when provided. Unavailable models remain discoverable. Request an exact quote before renting.",
     inputSchema: {
       min_vram_gb: z.number().optional().describe("Only GPUs with at least this much VRAM per card"),
       gpu_model: z.string().optional().describe("Filter by name, e.g. 4090, A100, H20"),
@@ -206,8 +206,10 @@ server.registerTool(
         usd_per_gpu_hour: r.hourly_usd,
         available: r.available,
         min_gpu_count: r.min_gpu_count,
+        inventory_count_exact: r.inventory_count_exact ?? null,
+        configurations: r.configurations ?? [],
       })),
-      note: "Billing periods vary by allocated source. Call estimate_cost for the minimum charge and billing increment. 'available' is live and can change before you rent.",
+      note: "usd_per_gpu_hour is a starting per-card rate; configurations[].hourlyPrice is the total for that single-host GPU count, not a per-card rate. Configuration availability is not a fleet count or reservation. Billing periods vary by allocated source; call estimate_cost for the selected count and current minimum charge, billing increment and exact total. Availability can change before you rent. Configuration fields are absent when the source has not supplied verified metadata.",
     });
   }),
 );
