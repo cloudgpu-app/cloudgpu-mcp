@@ -42,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.4";
+const VERSION = "0.16.5";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -68,7 +68,7 @@ const quotes = new Quotes();
 const session = new Map();
 
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) provides GPU compute scheduling for AI agents from a prepaid balance. Billing is source-specific: per-minute or minimum one hour with each started hour charged in full. Never infer the period from an hourly price label.
-Regional discovery: list_regional_offers reads native observations with separate stock/price ages and explicit unknowns. Supply the owner country explicitly, never the Agent egress IP. Native observations are planning only. For continent-constrained rentals, first call list_rental_regions and require enabled=true, then estimate_cost with the chosen continent. create_instance carries that approved constraint. Countries/datacenters and continent-constrained Jobs are not supported; never drop a hard constraint. Dynamic aggregate retail is not activated.
+Regional discovery: list_regional_offers reads native observations with separate stock/price ages and explicit unknowns. Supply the owner country explicitly, never the Agent egress IP. Native observations are planning only. For continent-constrained rentals, first call list_rental_regions and require enabled=true, then estimate_cost with the chosen continent. create_instance carries that approved constraint. Countries/datacenters and continent-constrained Jobs are not supported; never drop a hard constraint. Rental catalogue prices follow currently qualified supply; obtain a fresh billing quote before creating an instance.
 Planning: compare_compute_costs compares billed GPU cost for explicit candidates and duration; it is not a benchmark or creation approval. Check existing list_instances before renting: multiple approved commands can use the same running rental within its existing budget, time and idle limits. Separate run_job calls each provision and release independently; prepare_job_rerun does not reuse a live GPU. Never extend limits or keep idle GPUs merely to consume prepaid time.
 Server batches: prepare_job_batch also prepares the exact manifest for run_server_job_batch. The new tool atomically enqueues on the server, persists across client/server restarts, and requires an aggregate cap and individually approved billing. Use get_server_job_batch/cancel_server_job_batch; never substitute client partial submission when unavailable. No automatic failed-command retries.
 Legacy client batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
