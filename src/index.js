@@ -42,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.5";
+const VERSION = "0.16.6";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
