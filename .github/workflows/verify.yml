@@ -34,3 +34,29 @@ jobs:
           assert.ok(fs.readFileSync('src/index.js','utf8').includes(`const VERSION = "${version}"`));
           JS
           npm pack --dry-run
+  image-smoke:
+    name: Docker image stdio smoke (no network)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '20'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check exact npm release availability
+        id: npm_release
+        run: node scripts/npm-release-availability.mjs
+      - name: Build this PR Dockerfile and compare against published npm
+        if: steps.npm_release.outputs.published == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          baseline=$(mktemp -d)
+          trap 'rm -rf "$baseline"' EXIT
+          version=$(node -p "JSON.parse(require('fs').readFileSync('package.json')).version")
+          npm install --prefix "$baseline" --ignore-scripts --no-audit --no-fund \
+            --registry=https://registry.npmjs.org "cloudgpu-mcp@$version"
+          docker build --pull -t cloudgpu-image-smoke .
+          timeout --signal=TERM --kill-after=10s 120s \
+            node scripts/docker-smoke.mjs cloudgpu-image-smoke "$baseline"

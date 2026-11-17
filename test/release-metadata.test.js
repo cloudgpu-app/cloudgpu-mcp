@@ -2,3 +2,11 @@ import test from 'node:test';import assert from 'node:assert/strict';import fs f
 test('npm and MCP Registry metadata share the repository-owned namespace and version',()=>{
  const p=JSON.parse(fs.readFileSync('package.json')),s=JSON.parse(fs.readFileSync('server.json')),l=JSON.parse(fs.readFileSync('package-lock.json'));assert.equal(p.mcpName,s.name);assert.equal(s.name,'io.github.cloudgpu-app/cloudgpu-mcp');assert.equal(s.version,p.version);assert.equal(s.packages[0].version,p.version);assert.equal(l.version,p.version);assert.equal(l.packages[''].version,p.version);assert.equal(s.repository.url,'https://github.com/cloudgpu-app/cloudgpu-mcp');assert.ok(p.repository.url.includes(s.repository.url));assert.ok(fs.readFileSync('src/index.js','utf8').includes(`const VERSION = "${p.version}"`));
 });
+
+test('Docker installs the exact package version declared for this release',()=>{
+ const p=JSON.parse(fs.readFileSync('package.json'));
+ const dockerfile=fs.readFileSync('Dockerfile','utf8');
+ const installs=[...dockerfile.matchAll(/^\s*RUN\s+npm\s+install\s+-g\s+(cloudgpu-mcp(?:@\S+)?)\s*$/gm)].map(match=>match[1]);
+ assert.deepEqual(installs,[`${p.name}@${p.version}`],
+  'Keep the Docker npm pin in sync with package.json when releasing');
+});
