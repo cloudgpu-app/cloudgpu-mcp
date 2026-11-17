@@ -44,7 +44,11 @@ jobs:
         with:
           node-version: '20'
       - run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Check exact npm release availability
+        id: npm_release
+        run: node scripts/npm-release-availability.mjs
       - name: Build this PR Dockerfile and compare against published npm
+        if: steps.npm_release.outputs.published == 'true'
         shell: bash
         run: |
           set -euo pipefail
