@@ -1,62 +1,95 @@
 // 持久文件直接流向对象存储；长期 key 只发给 CloudGPU，不发给签名 URL 的主机。
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import fsp from "node:fs/promises";
 import path from "node:path";
-import { pipeline } from "node:stream/promises";
-import { Readable, Transform } from "node:stream";
+
+import { Readable } from "node:stream";
 import { sensitiveReason } from "./guards.js";
 import { z } from "zod";
 
 export class PersistentStorage {
   constructor(api, fetchImpl = globalThis.fetch) { this.api = api; this.fetch = fetchImpl; }
-  async upload(local, purpose = "artifact", name = path.basename(local), acceptStorageCharges = false) {
-    const stat = await fsp.stat(local);
-    if (!stat.isFile()) throw new Error("Upload needs a regular file.");
-    const file = await this.api.request("POST", "/v1/files", { name, purpose, size_bytes: stat.size, accept_storage_charges: acceptStorageCharges === true });
-    try {
-      for (let i = 1, offset = 0; i <= file.part_count; i++) {
-        const part = await this.api.request("POST", `/v1/files/${file.file_id}/parts/${i}`, {});
-        if (!String(part.url).startsWith("https://")) throw new Error("Storage must use HTTPS.");
-        const len = Number(part.content_length);
-        if (!Number.isSafeInteger(len) || len < 0 || offset + len > stat.size || (len === 0 && stat.size !== 0)) throw new Error("Invalid upload reservation.");
-        const stream = len === 0 ? Buffer.alloc(0) : fs.createReadStream(local, { start: offset, end: offset + len - 1 });
-        try {
-          const res = await this.fetch(part.url, { method: "PUT", headers: { "Content-Length": String(len) }, body: stream, duplex: "half", redirect: "error" });
-          if (!res.ok) throw new Error("Part upload failed.");
-          if (res.body) await res.body.cancel();
-        } catch { throw new Error("Storage part upload failed; no credentials were sent to the API response."); }
-        finally { if (stream.destroy) stream.destroy(); }
-        offset += len;
+  async digest(local) {
+    const hash = createHash("sha256");
+    for await (const chunk of fs.createReadStream(local)) hash.update(chunk);
+    return hash.digest("hex");
+  }
+  async upload(local, purpose = "artifact", name = path.basename(local), acceptStorageCharges = false, resume) {
+    const stat = await fsp.lstat(local);
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error("Upload needs a regular file.");
+    const digest = await this.digest(local);
+    if (resume && digest !== resume.sha256) throw new Error("Local file differs from the original upload; do not mix file versions.");
+    const file = resume
+      ? await this.api.request("GET", `/v1/files/${encodeURIComponent(resume.file_id)}/upload`)
+      : await this.api.request("POST", "/v1/files", { name, purpose, size_bytes: stat.size, accept_storage_charges: acceptStorageCharges === true });
+    if (resume && (Number(file.size_bytes) !== stat.size || file.name !== name)) throw new Error("Upload reservation differs from local file.");
+    const uploaded = new Set((file.uploaded_parts || []).map(p => Number(p.part_number)));
+    let offset = 0;
+    for (let i = 1; i <= file.part_count; i++) {
+      const expected = Math.min(Number(file.part_size_bytes), stat.size - offset);
+      if (!uploaded.has(i)) {
+        let done = false;
+        for (let attempt = 0; attempt < 3 && !done; attempt++) {
+          try {
+            const part = await this.api.request("POST", `/v1/files/${file.file_id}/parts/${i}`, {});
+            if (!String(part.url).startsWith("https://") || Number(part.content_length) !== expected) throw new Error("Invalid upload reservation.");
+            const stream = expected === 0 ? Buffer.alloc(0) : fs.createReadStream(local, { start: offset, end: offset + expected - 1 });
+            try {
+              const response = await this.fetch(part.url, { method: "PUT", headers: { "Content-Length": String(expected) }, body: stream, duplex: "half", redirect: "error", signal: AbortSignal.timeout(300000) });
+              if (response.body) await response.body.cancel();
+              if (!response.ok) throw new Error("Part failed.");
+              done = true;
+            } finally { if (stream.destroy) stream.destroy(); }
+          } catch { /* Renew only this part; never allocate a second reservation. */ }
+        }
+        if (!done) throw new Error(`Upload paused. Resume file_id=${file.file_id}, sha256=${digest}; reservation expires after 24 hours. No signed URL is retained.`);
       }
-      const after = await fsp.stat(local);
-      if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs) throw new Error("File changed during upload; snapshot was not saved.");
-      return await this.api.request("POST", `/v1/files/${file.file_id}/complete`, {});
-    } catch (e) {
-      await this.api.request("DELETE", `/v1/files/${file.file_id}`).catch(() => {});
-      throw e;
+      offset += expected;
     }
+    const after = await fsp.stat(local);
+    if (after.size !== stat.size || after.mtimeMs !== stat.mtimeMs || await this.digest(local) !== digest) {
+      await this.api.request("DELETE", `/v1/files/${file.file_id}`).catch(() => {});
+      throw new Error("File changed during upload; snapshot was not saved.");
+    }
+    try { return await this.api.request("POST", `/v1/files/${file.file_id}/complete`, {}); }
+    catch { throw new Error(`Upload completion uncertain for file_id=${file.file_id}. Check list_files and retry completion; do not delete or create another upload.`); }
   }
   async download(id, local) {
-    const transfer = await this.api.request("POST", `/v1/files/${encodeURIComponent(id)}/download`, {});
-    if (!String(transfer.url).startsWith("https://")) throw new Error("Storage must use HTTPS.");
-    const expected = Number(transfer.size_bytes);
-    if (!Number.isSafeInteger(expected) || expected < 0) throw new Error("Invalid file size.");
     await fsp.mkdir(path.dirname(local), { recursive: true });
-    const handle = await fsp.open(local, "wx", 0o600); // 不覆盖已有结果。
+    const handle = await fsp.open(local, "wx", 0o600);
+    let received = 0, expected;
     try {
-      const res = await this.fetch(transfer.url, { redirect: "error" });
-      if (!res.ok || !res.body) throw new Error("Download failed.");
-      let received = 0;
-      const bounded = new Transform({ transform(chunk, _encoding, done) {
-        received += chunk.length;
-        done(received > expected ? new Error("Storage returned excess bytes.") : null, received > expected ? undefined : chunk);
-      } });
-      await pipeline(Readable.fromWeb(res.body), bounded, handle.createWriteStream());
-      if ((await fsp.stat(local)).size !== Number(transfer.size_bytes)) throw new Error("Downloaded size mismatch.");
-      return { local_path: local, bytes: transfer.size_bytes };
+      for (let attempt = 0; attempt < 4; attempt++) {
+        try {
+          const transfer = await this.api.request("POST", `/v1/files/${encodeURIComponent(id)}/download`, {});
+          if (!String(transfer.url).startsWith("https://")) throw new Error("HTTPS required.");
+          const size = Number(transfer.size_bytes);
+          if (!Number.isSafeInteger(size) || size < 0 || (expected !== undefined && expected !== size)) throw new Error("Invalid immutable file size.");
+          expected = size;
+          const response = await this.fetch(transfer.url, { redirect: "error", headers: received ? { Range: `bytes=${received}-` } : {}, signal: AbortSignal.timeout(300000) });
+          try {
+            if (!response.ok || !response.body) throw new Error("Download failed.");
+            if (received && (response.status !== 206 || response.headers.get("content-range") !== `bytes ${received}-${expected - 1}/${expected}`)) throw new Error("Invalid resume range.");
+            for await (const chunk of Readable.fromWeb(response.body)) {
+              if (received + chunk.length > expected) throw new Error("Excess file bytes.");
+              let written = 0;
+              while (written < chunk.length) {
+                const result = await handle.write(chunk, written, chunk.length - written, received + written);
+                if (!result.bytesWritten) throw new Error("Local write failed.");
+                written += result.bytesWritten;
+              }
+              received += chunk.length;
+            }
+          } finally { if (response.body && !response.body.locked) await response.body.cancel().catch(() => {}); }
+          if (received !== expected) throw new Error("Incomplete download.");
+          await handle.close();
+          return { local_path: local, bytes: expected };
+        } catch { if (attempt === 3) throw new Error("Transfer failed."); }
+      }
     } catch {
       await handle.close().catch(() => {}); await fsp.unlink(local).catch(() => {});
-      throw new Error("Storage download failed; the partial file was removed.");
+      throw new Error("Storage download failed after bounded resume attempts; the partial file was removed.");
     }
   }
   async saveWorkspace(localDir, name, workspaceId, acceptStorageCharges = false) {
@@ -100,6 +133,18 @@ export function registerStorageTools(server, { api, wrap, ok, fail, readOnly, ex
   server.registerTool("list_workspace_instances", { title: "Running GPUs for Workspace restore", description: "Lists your running GPUs that this key may access. Budgeted Agent keys only see instances created by the same key.", inputSchema: {}, annotations: { readOnlyHint: true } }, wrap(async () => ok(await api.request("GET", "/v1/workspace-instances"))));
   server.registerTool("get_workspace_application", { title: "Workspace application status", description: "Check file restoration on an existing GPU. This does not create, stop or restart a GPU. An uncertain result must be checked, never automatically resubmitted.", inputSchema: { version_id: z.string(), instance_id: z.string().regex(/^[0-9]{1,32}$/) }, annotations: { readOnlyHint: true } }, wrap(async ({ version_id, instance_id }) => ok(await api.request("GET", `/v1/workspace-versions/${encodeURIComponent(version_id)}/applications/${encodeURIComponent(instance_id)}`))));
   if (readOnly) return;
+  server.registerTool("quote_storage_budget", {
+    title: "Quote separate storage budget", description: "Quote reserving GPU wallet funds for persistent storage, or returning unused surplus. No transfer yet. Shows USD rate, budget-based capacity and 30-day file expiry. Budget-limited keys cannot move funds; ask owner to use Web or unrestricted key.",
+    inputSchema: { action: z.enum(["reserve", "release"]), amount_usd: z.number().positive().max(1000000) }, annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+  }, wrap(async ({ action, amount_usd }) => ok(await api.request("POST", "/v1/storage/budget/quotes", { action, amount_usd }))));
+  server.registerTool("confirm_storage_budget", {
+    title: "Confirm storage budget transfer", description: "Moves wallet funds only after the user approves the exact quote. Retrying the same quote cannot transfer twice. Reservation is not billed usage; daily actual peak consumes the budget. Never approve automatically.",
+    inputSchema: { quote_id: z.string().regex(/^sbq_[a-f0-9]{32}$/), user_confirmed: z.boolean() }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, wrap(async ({ quote_id, user_confirmed }) => user_confirmed === true ? ok(await api.request("POST", `/v1/storage/budget/quotes/${quote_id}/confirm`, { user_confirmed })) : fail("Ask the user to approve the exact storage quote first.")));
+  server.registerTool("resume_artifact_upload", {
+    title: "Resume interrupted file upload", description: "Resume the same unexpired multipart reservation. Requires the original SHA-256 reported when upload paused. Skips completed parts; renews expiring URLs. Never mixes changed files or creates another reservation.",
+    inputSchema: { local_path: z.string(), file_id: z.string().regex(/^file_[a-f0-9]{32}$/), sha256: z.string().regex(/^[a-f0-9]{64}$/) }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true },
+  }, wrap(async ({ local_path, file_id, sha256 }) => { const local = path.resolve(expandHome(local_path)); if (sensitiveReason(local)) return fail("Credential files cannot be uploaded."); return ok(await client.upload(local, "artifact", path.basename(local), false, { file_id, sha256 })); }));
   server.registerTool("apply_workspace", {
     title: "Apply Workspace to running GPU", description: "Restore project files to a new private directory on your existing running GPU. Does not install dependencies, execute code, overwrite existing files, rent, restart or stop a GPU. GPU rental billing continues; transfer consumes its network and disk. Ask the user before applying. Repeat requests for the same version and instance return the existing result; failures require inspection, not automatic retries.",
     inputSchema: { version_id: z.string(), instance_id: z.string().regex(/^[0-9]{1,32}$/), user_confirmed: z.boolean() }, annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },

@@ -36,16 +36,14 @@ resp = client.chat.completions.create(
 print(resp.choices[0].message.content)
 ```
 
-curl:
+The same request as HTTP. Read the key from the environment; do not paste it into the request text you show the user.
 
-```bash
-curl https://cloudgpu.app/v1/chat/completions \
-  -H "Authorization: Bearer $CLOUDGPU_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"model": "kimi-k3", "messages": [{"role": "user", "content": "Say hello."}]}'
-```
+- `POST https://cloudgpu.app/v1/chat/completions`
+- `Authorization: Bearer` followed by the value of `CLOUDGPU_API_KEY`
+- `Content-Type: application/json`
+- Body: `{"model":"<id from the model list>","messages":[{"role":"user","content":"Say hello."}]}`
 
-`kimi-k3` is only an example ID. Check the model list before using it.
+The model id in any example is only an example. Check the model list before using it.
 
 ## Prices and balance
 

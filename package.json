@@ -1,8 +1,8 @@
 {
   "name": "cloudgpu-mcp",
-  "version": "0.12.1",
-  "mcpName": "io.github.mrhy7176/cloudgpu-mcp",
-  "description": "MCP server and command-line tool for cloudgpu.app: let Claude Code, Cursor, Cline, opencode, goose and other MCP clients (or you, from a terminal) rent a GPU per minute, run a job, fetch the results and shut it down, with spending limits the platform enforces.",
+  "version": "0.16.5",
+  "mcpName": "io.github.cloudgpu-app/cloudgpu-mcp",
+  "description": "MCP server and command-line tool for cloudgpu.app: let Claude Code, Cursor, Cline, opencode, goose and other MCP clients (or you, from a terminal) rent a GPU with explicit billing quotes, run a job, fetch the results and shut it down, with spending limits the platform enforces.",
   "type": "module",
   "bin": {
     "cloudgpu-mcp": "src/index.js",
@@ -14,7 +14,8 @@
     "rules",
     "README.md",
     "LICENSE",
-    "examples"
+    "examples",
+    "skills"
   ],
   "engines": {
     "node": ">=18.3"
@@ -42,10 +43,10 @@
   "homepage": "https://cloudgpu.app/docs/mcp",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/mrhy7176/cloudgpu-mcp.git"
+    "url": "git+https://github.com/cloudgpu-app/cloudgpu-mcp.git"
   },
   "bugs": {
-    "url": "https://github.com/mrhy7176/cloudgpu-mcp/issues"
+    "url": "https://github.com/cloudgpu-app/cloudgpu-mcp/issues"
   },
   "license": "MIT",
   "author": "CloudGPU <support@cloudgpu.app>",

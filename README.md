@@ -1,12 +1,12 @@
 # CloudGPU MCP
 
-[CloudGPU](https://cloudgpu.app) MCP server: let an AI agent rent a GPU by the minute, run a job, bring the results back and shut the GPU down. The same API key and balance also cover CloudGPU's OpenAI-compatible model API, so an agent can call a hosted model without renting anything.
+[CloudGPU](https://cloudgpu.app) MCP server: let an AI agent compare GPU compute costs, approve source-specific billing, run a job, bring the results back and shut the GPU down. The same API key and balance also cover CloudGPU's OpenAI-compatible model API, so an agent can call a hosted model without renting anything.
 
 > "Fine-tune a 7B base model with LoRA on data/train.jsonl and put the adapter in ./outputs."
 
 The agent checks live prices and quotes you, rents the GPU once you say yes, uploads your code and data, starts training in the background, watches the logs, downloads the adapter and destroys the instance. You get the files and the final cost.
 
-It is a local (stdio) MCP server. It works with any MCP client that can start one: Claude Code, Cursor, Cline, opencode, goose, VS Code, Windsurf and others.
+It is a local (stdio) MCP server. It works with any MCP client that can start one: Codex, Claude Code, Cursor, Cline, opencode, goose, VS Code, Windsurf and others. Remote Streamable HTTP with OAuth is also available at `https://cloudgpu.app/mcp`; see [remote MCP setup](https://cloudgpu.app/docs/mcp).
 
 ## Install
 
@@ -100,6 +100,26 @@ extensions:
 
 To check the install, ask your agent: "List the GPUs available, then estimate the cost for a 24 GB GPU for one hour. Do not create anything." You should see `list_gpus` and `estimate_cost` calls and a quote, and nothing is rented.
 
+## Codex MCP
+
+Add the local stdio server without putting a key in your command history:
+
+```bash
+codex mcp add cloudgpu -- npx -y cloudgpu-mcp
+codex mcp list
+```
+
+In Codex, ask CloudGPU to call `connect_account`, open the returned link yourself, sign in, review the limits and approve, then ask it to call `finish_connect`. If needed, use `request_top_up` for an owner payment link and `wait_for_funds` to check the resulting balance. Never paste credentials into the conversation. Account connection does not approve paid compute; review a fresh quote and its billing terms before each allocation.
+
+For a Codex client that supports remote MCP and OAuth, use this instead of the local entry:
+
+```bash
+codex mcp add cloudgpu --url https://cloudgpu.app/mcp
+codex mcp login cloudgpu
+```
+
+The remote and local transports expose different tool sets; consult the [current MCP documentation](https://cloudgpu.app/docs/mcp). Start with a read-only capability or GPU-price check and explicitly ask it not to create resources. This is direct MCP configuration, separate from the optional Codex plugin below.
+
 ## Agent Skill
 
 The same guidance is available as two [Agent Skills](https://agentskills.io):
@@ -110,8 +130,14 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 - **Claude plugin:** both skills are included automatically when you install the CloudGPU Claude plugin from this repo's marketplace:
 
   ```
-  /plugin marketplace add mrhy7176/cloudgpu-mcp
+  /plugin marketplace add cloudgpu-app/cloudgpu-mcp
   /plugin install cloudgpu@cloudgpu
+  ```
+
+- **Codex plugin:** the same repository is an Agent Plugins package (`plugin.json`, `mcp.json`, and `skills/`). Codex shows it as CloudGPU. The server reads `CLOUDGPU_API_KEY` from the environment.
+
+  ```
+  codex plugin marketplace add cloudgpu-app/cloudgpu-mcp
   ```
 
 - **Claude Code, personal install:** copy `skills/cloudgpu/` and `skills/cloudgpu-model-api/` to `~/.claude/skills/`.
@@ -119,7 +145,7 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 - **Cursor, Codex, Cline, Amp and other agents that read Agent Skills:** install both skills with the [skills CLI](https://skills.sh):
 
   ```
-  npx skills add mrhy7176/cloudgpu-mcp
+  npx skills add cloudgpu-app/cloudgpu-mcp
   ```
 
 ## Tools
@@ -127,8 +153,9 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | Tool | What it does |
 |---|---|
 | `get_account` | Balance, and how many instances the account may run at once |
-| `list_gpus` | GPU models with VRAM, live price per GPU-hour and availability |
+| `list_gpus` | GPU models, live starting rates, availability and detailed native configurations (GPU count, CPU, RAM, disks, region, interconnect and total hourly price) when available |
 | `list_templates` | Ready-made images: JupyterLab, Ollama, ComfyUI, LLaMA-Factory, … |
+| `compare_compute_costs` | Compare live total billed GPU cost for up to eight compatible candidates; no reservation or creation approval |
 | `estimate_cost` | Live quote for a GPU and a number of hours, plus your balance afterwards; returns a `quote_id` |
 | `create_instance` | Rents from an approved quote, with a budget, a time limit and an idle limit |
 | `get_status` / `list_instances` | Status, minutes run, cost so far, auto-shutdown limits |
@@ -140,11 +167,19 @@ The same guidance is available as two [Agent Skills](https://agentskills.io):
 | `run_job` | Starts a GPU, runs one command and destroys the GPU, all on CloudGPU's servers; safe to retry with the same `idempotency_key` |
 | `get_job` / `list_jobs` | Job status, exit code, cost, the last ~4 KB of output and the job's history |
 | `cancel_job` | Stops a job and destroys its GPU |
+| `get_agent_readiness` / `assess_task_fit` | Anonymous capability, billing, task suitability and evidence checks; no GPU is created |
+| `list_rental_regions` | Anonymous qualified continent catalog; use its enabled flag, then a continent-bound rental quote |
+| `list_regional_offers` | Anonymous native regional inventory observations and independent price evidence; explicit owner country, freshness, unknowns and overlapping capacity; planning only |
+| `request_top_up` / `wait_for_funds` | Human-only payment link and bounded polling for actual credit; no automatic charge or Job |
+| `quote_storage_budget` / `confirm_storage_budget` | Quote and explicitly approve an earmarked storage transfer; backend rollout and owner permissions apply |
+| `resume_artifact_upload` | Resume the same owned multipart reservation with the original local file and checksum |
 | `connect_account` / `finish_connect` | Gets a key without copying one: the user approves this assistant in the browser with a spending limit and a number of GPUs at once |
 
 The server also provides a `train_on_cloudgpu` prompt.
 
 ## Guardrails
+
+- **Bounded local MCP inputs.** A tool call may contain at most 10,000 combined array entries and object members, including nested values. Larger calls are rejected before tool-schema validation or API/SSH handlers. This includes inline ComfyUI workflows; simplify oversized workflows rather than splitting a paid operation or silently dropping fields. The stdio transport also retains its 10 MiB buffered-input limit. These are local MCP limits, not a claim about the remote service.
 
 - **A quote first.** `create_instance` only takes a `quote_id` from `estimate_cost` and `user_confirmed=true`.
 - **Server-side limits.** Every instance is created with `max_spend_usd`, `max_hours` and an idle limit (60 minutes by default). CloudGPU's servers check them and destroy the instance when one is hit, even if your client has disconnected or your laptop is asleep.
@@ -248,7 +283,7 @@ cloudgpu down <id>               # destroys it and stops billing (asks first; --
 - Model API and prices: https://cloudgpu.app/api
 - API reference: https://cloudgpu.app/api/docs · OpenAPI: https://cloudgpu.app/openapi.json · For LLMs: https://cloudgpu.app/llms.txt
 
-CloudGPU here means cloudgpu.app. Prepaid balance, billed per minute; when the balance runs out, running instances are destroyed and their disks erased, so keep enough balance for the job and download results as you go.
+CloudGPU here means cloudgpu.app. Prepaid balance, source-specific minute or started-hour billing; when the balance runs out, running instances are destroyed and their disks erased, so keep enough balance for the job and download results as you go.
 
 ## Development
 
@@ -354,3 +389,91 @@ Keep the exact original manifest outside the receipt store. Expired quotes for u
 One in-flight batch retains its original API credential and endpoint even if another tool connects a different account concurrently. `not_submitted` in a returned call receipt means unvisited **in that invocation only**; those entries may have accepted Jobs from an earlier call. Inspect the saved receipt and live Job IDs before deciding what remains.
 
 Use 0.12.1 or newer for directory-entry durability: newly created config/receipt directories and their parent entries are synced before paid submission. A parent-directory sync failure refuses new batch work. Existing 0.12.0 receipt records remain readable; preserve their IDs and original keys rather than deleting them. Process-exit tests alone do not constitute physical power-loss testing.
+
+### Rental billing quotes (0.13.0)
+
+`estimate_cost` obtains a short-lived server billing quote and reports the minimum charge, billing increment and preauthorization. Most sources charge by the minute. A whole-hour source starts billing at resource allocation, has a one-hour minimum and charges each started hour in full; voluntary stop does not refund unused time inside that hour. Show these terms and the estimate before requesting the user’s approval. `rent_gpu` submits the same approved billing quote; expired quotes require a new estimate and approval. Do not infer billing periods from the GPU model or hourly price.
+
+Upgrade your installed `cloudgpu-mcp` package and restart the MCP client to load the new tools. This update does not restart existing GPUs.
+
+### Registry namespace update (0.13.1)
+
+The current MCP Registry listing is `io.github.cloudgpu-app/cloudgpu-mcp`, matching the repository organization. Older entries under `io.github.mrhy7176/cloudgpu-mcp` are historical. The npm package remains `cloudgpu-mcp`; existing stdio configurations and scoped API keys do not change. Upgrade the package and restart your MCP client.
+
+### Agent compute planning (0.14.0)
+
+Ask your connected Agent: “Compare compatible GPUs for this task, include preparation and download time, and show the minimum charge before creating anything.” `compare_compute_costs` checks live rental quotes and sorts by estimated billed GPU cost, including whole-hour minimums. It does not benchmark speed or prove Job/template support. A fresh `estimate_cost` and explicit billing approval are still required to rent.
+
+Can one GPU serve several Agent tasks? Yes: sequential approved `run_command` calls can use the same running rental, within its original budget, deadline and idle limit. Check `list_instances` / `get_status` first. Independent `run_job` calls and “rerun” each provision separately; they do not share an instance. Do not extend limits or keep an idle GPU merely because an hour was charged. Save outputs before stopping; Workspace is explicit persistence, not a disk snapshot.
+
+MCP clients must install or upgrade this package and restart their local MCP process. The account connection link authorizes a supported client; it cannot install tools into any arbitrary AI service.
+
+### Several tasks, one GPU allocation (0.15.0)
+
+`prepare_task_pipeline` prepares 1–8 reviewed commands to run sequentially as one Job. They share the GPU and filesystem; each step has a new shell, so shell variables and in-memory model processes do not persist between steps. A nonzero step exit stops subsequent steps. Dependencies and any required models must already be prepared; this is not application-quality or GPU-model acceptance.
+
+Preparation makes no API request or reservation. Review the returned command, obtain a compatible Job quote and explicit total GPU budget/deadline approval, then call `run_job` once. Retain that submission's idempotency key if its response is lost. The manifest fingerprint is informational, not a server-enforced approval or submission key. Independent Jobs still use independent allocations; this is not the durable batch coordinator.
+
+For an existing rental, the reviewed command can instead be passed to `run_command` in the approved working directory, within its original limits. Apply a Workspace separately when needed. The draft never stops or extends an existing rental. Whole-hour sources remain usable through the existing explicitly approved rental path; this release does not remove their current automatic-Job compatibility gate.
+
+With `persist_summary=true`, the Job draft explicitly collects only `pipeline-summary.json` through the existing output collector, using current storage quota/retention and `accept_storage_charges=false`. The summary contains step IDs, exit codes and state, not raw logs, commands or arbitrary task results. Result-file persistence must be configured and approved separately. The summary must not already exist; missing output collection or a conflicting file aborts before commands run.
+
+### Funded connection, storage growth and remote MCP
+
+Version 0.16.0 was verified on npm and the official Registry on 2026-11-13. The current stdio inventory is 57 tools. The remote endpoint at `https://cloudgpu.app/mcp` uses Streamable HTTP JSON responses and OAuth authorization code with S256 PKCE; it exposes 23 tools safe without local filesystem/SSH access. Public discovery needs no login; account and paid operations require scoped owner authorization. Always check live backend capabilities and actual source-specific billing.
+
+`connect_account` returns a direct Google link and email alternative. Pending connection state is private, origin-bound and survives restart; the server allows 30 minutes for approval. Browser payment does not approve compute. `request_top_up` creates only a short-lived owner link; `wait_for_funds` requires a real credit signal and sufficient live balance. Neither creates a Job.
+
+Dedicated storage budget is a separate, explicitly confirmed wallet reservation, consumed only by actual UTC daily peak usage. Unused surplus can return after existing files, uploads and pending daily charges remain covered. It is not revenue or an automatic refill. Capacity can grow with budget, subject to published technical limits, and retention remains 30 days. Budget-limited Agent keys cannot reserve funds or consent to paid storage. Disabling new self-service transfers must not disable accounting for existing reserves.
+
+Multipart resume keeps the same reservation and original file hash. GPU restore renewal is file-scoped, temporary and feature-gated; no general account key is installed on a GPU. Local fixtures do not certify TB-sized transfers. Backend automatic public-model preparation currently has a 600-second deadline: a 9.8GB Wan video case exceeded it on the measured link. Prepared images or explicitly reviewed bounded download commands need their own acceptance; do not promise that every size below the model byte limit loads in time.
+
+The Python SDK and optional framework adapters are under [`python/`](python/README.md). PyPI publication requires an owner-configured Trusted Publisher. Real LangChain Core 1.8.0, OpenAI Agents SDK 0.24.0 and CrewAI 1.6.1 tool/invocation and anonymous HTTP acceptance passed; no paid model or GPU operation was used. See the Python README for exact scope and reproduction.
+
+The reviewed [Python SDK0.1.0 release](https://github.com/cloudgpu-app/cloudgpu-mcp/releases/tag/python-v0.1.0) has a public wheel, source distribution and SHA256SUMS. The public wheel was downloaded and its checksum and ten SDK tests passed. PyPI is not yet configured; use the exact release URL rather than an unrelated package. Hermes root installation and existing-owner private connection/catalog acceptance passed after packaging/profile fixes in cloudgpu-app/hermes-cloudgpu#5.
+
+### Reproducible paid task cases
+
+See [environment check, synthetic causal-LM LoRA and tiny ComfyUI video cases](examples/verified-tasks/README.md) for pinned scripts, observed fees, download checksums and release evidence. They preview locally by default; paid submission needs owner approval. Resume an accepted Job by ID to download results without another GPU. For persistent tasks, `assess_task_fit` accepts `expected_output_bytes`; current direct collection and bounded network fallback limits are returned by the live contract.
+
+### Durable server batches and whole-hour Jobs (0.16.3)
+
+Use `prepare_job_batch` to review every command, fresh compute quote, deadline and aggregate GPU cap. Pass the exact manifest/hash and explicit user approval to `run_server_job_batch`. The server atomically commits all child Job rows or none; it dispatches from the database after client/server restarts, waiting for account/Key execution slots. `get_server_job_batch(batch_id)` returns bounded states/cost summaries; use individual `get_job` for detailed outputs. `cancel_server_job_batch` requires approval and preserves charges for already-started hours. Failed commands are not automatically rerun, and an uncertain provider result never authorizes another GPU.
+
+REST equivalents: `POST /v1/job-batches` with `Idempotency-Key`, `total_budget_usd` and 1–32 `jobs`; `GET /v1/job-batches/{batch_id}`; `POST /v1/job-batches/{batch_id}/cancel`. The MCP reviewed manifest remains capped at eight children. Replaying the identical key/body returns the existing children. Existing `run_job_batch` retains its explicitly non-atomic client submission behavior for compatibility; the server tool never falls back to it.
+
+For whole-hour Jobs, call `estimate_cost` for the exact configuration and accept the minimum/billing period. Supply its `billing_quote_id` plus `billing_accepted=true` to `run_job` or each batch child, in addition to the compute `quote_id` and execution approval. Each allocation needs a separate current billing quote. The Job cap must cover the minimum; elapsed portions of a started hour are not voluntarily refunded. Billing quotes last five minutes: an expired queued Job fails without allocation and requires a new reviewed request. It is never silently renewed or routed under different billing terms. Recovery uses durable provider receipts and independent upstream presence checks; ambiguous intents remain `needs_attention`.
+
+### Regional facts before a compute decision
+
+`list_regional_offers` calls anonymous `GET /v1/public/compute-offers`. Give the
+human owner country explicitly as `user_country`; an Agent's hosting location
+is not its owner's location. Optional filters are `country_code`, `gpu_model`,
+`gpu_count`, `include_unavailable`, `limit` and the returned `after_id` cursor.
+Stock and source-price evidence have separate ages. Failed, stale, unsupported
+or missing observations do not prove zero stock. Counts are not reservations
+or proof that multiple cards can be allocated on one host. Capacity groups are
+known aliases only; do not sum them into an independent global total.
+
+Native regional observations do not authorize execution or change retail
+pricing. A published SKU reference is not an executable quote. For a hard
+continent constraint, use the separately advertised rental capability below.
+Country/datacenter constraints remain unsupported and must not be dropped. MCP also
+rejects unknown argument fields instead of silently stripping them. Tasks that
+do not require a location continue to use fresh standard quotes and their
+source-specific billing/approval rules. No native mounted-volume product is
+offered; Workspace still uses explicit file snapshots and restore.
+
+
+## Continent-constrained rentals
+
+Check anonymous `GET /v1/public/rental-regions` (MCP `list_rental_regions`) first. This staged capability is available only when its response says `enabled: true`. Select one of `asia`, `europe`, `north_america`, `oceania`, `south_america`, `africa`; country and datacenter selection are not supported. With no qualified supply, do not infer a region from the unfiltered legacy catalogue or the Agent's IP.
+
+For a rental, pass the same `continent` to `estimate_cost` / `POST /v1/gpu/billing-quote`, then obtain explicit approval and pass it with the exact `billing_quote_id` and `billing_accepted: true` to `POST /v1/gpu/instances`. The stdio client's `create_instance` carries the approved continent automatically. Changes or missing continent bindings require a new quote. Minimum billing periods are unchanged; there is no automatic cross-continent fallback.
+
+The generic `POST /v1/quotes`, Jobs and batches do not yet accept a hard continent constraint. Do not drop that constraint or substitute an unconstrained Job. Rental catalogue prices follow qualified source costs and current stock. The lowest available qualifying price is shown, while the accepted billing quote binds the price and billing terms. Native regional observations remain planning data, not reservations or proof of worldwide rentable coverage.
+### Detailed GPU configurations
+
+`list_gpus` preserves the REST `/v1/gpu/offers` configuration data. `usd_per_gpu_hour` is a starting per-card rate; each `configurations[].hourlyPrice` is the **whole instance** price for `gpuCount` cards. Each entry includes per-card VRAM, CPU/RAM, system/local disk, interconnect, continent, current availability, billing minimum/increment in seconds and observation time in Unix milliseconds where supplied. Missing fields mean unknown.
+
+`inventory_count_exact: false` means the source reports configuration availability, not a count of machines. Do not add overlapping 1/2/4/8-card alternatives or treat them as reserved stock. A catalog entry can be unavailable while retained for discovery. `estimate_cost` for the chosen card count remains required; GPU catalog membership does not imply Job or template compatibility.

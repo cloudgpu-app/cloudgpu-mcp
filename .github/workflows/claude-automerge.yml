@@ -1,7 +1,7 @@
 # Claude 改动的自动合并兜底。
 #
 # 处理对象：head 分支以 claude/issue- 或 claude/pr- 开头（claude-code-action 自动起的分支名）、
-# 来自本仓库、目标是默认分支、作者是 Claude App(claude[bot]) / mrhy7176 / github-actions[bot] 的 PR。
+# 来自本仓库、目标是默认分支、作者是 Claude App(claude[bot]) / cloudgpuapp / github-actions[bot] 的 PR。
 # 其它 claude/ 分支（比如手工建的 claude/cloudgpu-takeover-*）不会被自动合并。
 #
 # 两种触发：
@@ -42,7 +42,7 @@ jobs:
         github.event.pull_request.head.repo.full_name == github.repository &&
         github.event.pull_request.base.ref == github.event.repository.default_branch &&
         (startsWith(github.head_ref, 'claude/issue-') || startsWith(github.head_ref, 'claude/pr-')) &&
-        contains(fromJSON('["claude[bot]", "mrhy7176", "github-actions[bot]"]'), github.event.pull_request.user.login))
+        contains(fromJSON('["claude[bot]", "cloudgpuapp", "github-actions[bot]"]'), github.event.pull_request.user.login))
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -94,7 +94,7 @@ jobs:
 
           read -r AUTHOR DRAFT < <(gh api "repos/$REPO/pulls/$PR" --jq '[.user.login, (.draft|tostring)] | @tsv')
           case "$AUTHOR" in
-            "claude[bot]"|mrhy7176|"github-actions[bot]") ;;
+            "claude[bot]"|cloudgpuapp|"github-actions[bot]") ;;
             *) echo "PR #$PR 作者是 $AUTHOR，不自动合并"; exit 0 ;;
           esac
           if [ "$DRAFT" = "true" ]; then echo "PR #$PR 是草稿，不自动合并"; exit 0; fi

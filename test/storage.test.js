@@ -11,7 +11,7 @@ test("multipart file transfer never forwards the account key to object storage",
   const calls = [], contents = [];
   const api = { request: async (method, url, body) => {
     calls.push({ method, url, body });
-    if (url === "/v1/files") return { file_id: "file_1", part_count: 2 };
+    if (url === "/v1/files") return { file_id: "file_1", part_count: 2, part_size_bytes: 3 };
     if (url.endsWith("/complete")) return { file_id: "file_1", status: "ready" };
     return { url: "https://storage.example.invalid/part", content_length: 3 };
   } };
@@ -28,18 +28,19 @@ test("multipart file transfer never forwards the account key to object storage",
   } finally { await fs.rm(dir, { recursive: true }); }
 });
 
-test("failed upload aborts its reservation instead of becoming a ready artifact", async () => {
+test("failed upload preserves its reservation for bounded resumption instead of becoming ready", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cgpu-persist-"));
   const local = path.join(dir, "a"); await fs.writeFile(local, "abc");
   const calls = [];
   const api = { request: async (method, url) => {
     calls.push(method + " " + url);
-    if (url === "/v1/files") return { file_id: "file_x", part_count: 1 };
+    if (url === "/v1/files") return { file_id: "file_x", part_count: 1, part_size_bytes: 67108864 };
     return { url: "https://storage.example.invalid/part", content_length: 3 };
   } };
   try {
-    await assert.rejects(() => new PersistentStorage(api, async () => ({ ok: false })).upload(local), /part upload failed/);
-    assert.ok(calls.includes("DELETE /v1/files/file_x"));
+    await assert.rejects(() => new PersistentStorage(api, async () => ({ ok: false })).upload(local), /Upload paused/);
+    assert.ok(!calls.includes("DELETE /v1/files/file_x"));
+    assert.equal(calls.filter(x=>x.includes("/parts/1")).length,3);
     assert.ok(!calls.some(c => c.endsWith("/complete")));
   } finally { await fs.rm(dir, { recursive: true }); }
 });
@@ -83,7 +84,7 @@ test("empty project marker files can be persisted", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "cgpu-persist-"));
   const local = path.join(dir, "__init__.py"); await fs.writeFile(local, "");
   const api = { request: async (_method, url, body) => {
-    if (url === "/v1/files") { assert.equal(body.size_bytes, 0); return { file_id: "file_empty", part_count: 1 }; }
+    if (url === "/v1/files") { assert.equal(body.size_bytes, 0); return { file_id: "file_empty", part_count: 1, part_size_bytes: 67108864 }; }
     if (url.endsWith("/complete")) return { file_id: "file_empty", status: "ready" };
     return { url: "https://storage.example.invalid/part", content_length: 0 };
   } };
@@ -111,7 +112,7 @@ test("paid storage consent is explicit and never inferred from a truthy string",
   const local = path.join(dir, "empty"); await fs.writeFile(local, "");
   const accepted=[];
   const api={request:async(method,url,body)=>{
-    if(url==="/v1/files"){accepted.push(body.accept_storage_charges);return {file_id:"file_test",part_count:1};}
+    if(url==="/v1/files"){accepted.push(body.accept_storage_charges);return {file_id:"file_test",part_count:1,part_size_bytes:67108864};}
     if(url.endsWith("/complete"))return {status:"ready"};
     return {url:"https://storage.example.invalid/part",content_length:0};
   }};

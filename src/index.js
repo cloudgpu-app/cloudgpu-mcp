@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import {registerFundingTools} from "./funding-tools.js";
+import {registerAgentReadinessTools} from "./agent-readiness.js";
+import {registerRegionalOfferTools,CONTINENTS} from "./regional-offers.js";
+import {useStrictToolInputs} from "./strict-tools.js";
+import {rentalBilling} from "./rental-billing.js";
+import {registerComputePlanningTools} from './compute-planning.js';
+import {registerTaskPipelineTools} from './task-pipelines.js';
 import {registerBatchTools} from './job-batches.js';
 import {jobInputShape} from './job-input.js';
 import {registerTaskTemplateTools} from './task-templates.js';
@@ -20,7 +27,7 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { CloudGpuApi, ApiError } from "./api.js";
 import { SshPool, exec, upload, download, writeFile } from "./ssh.js";
-import { loadStoredKey, saveStoredKey } from "./credentials.js";
+import { loadStoredKey, saveStoredKey, loadPendingConnect, savePendingConnect, clearPendingConnect } from "./credentials.js";
 import crypto from "node:crypto";
 import { registerStorageTools } from "./storage.js";
 import { registerJobResultTools } from "./job-results.js";
@@ -35,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.12.1";
+const VERSION = "0.16.5";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -60,8 +67,12 @@ const quotes = new Quotes();
 // Instances this session touched: did we run anything, did we download anything.
 const session = new Map();
 
-const INSTRUCTIONS = `CloudGPU (cloudgpu.app) rents GPUs billed per minute from a prepaid balance.
-Batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
+const INSTRUCTIONS = `CloudGPU (cloudgpu.app) provides GPU compute scheduling for AI agents from a prepaid balance. Billing is source-specific: per-minute or minimum one hour with each started hour charged in full. Never infer the period from an hourly price label.
+Regional discovery: list_regional_offers reads native observations with separate stock/price ages and explicit unknowns. Supply the owner country explicitly, never the Agent egress IP. Native observations are planning only. For continent-constrained rentals, first call list_rental_regions and require enabled=true, then estimate_cost with the chosen continent. create_instance carries that approved constraint. Countries/datacenters and continent-constrained Jobs are not supported; never drop a hard constraint. Rental catalogue prices follow currently qualified supply; obtain a fresh billing quote before creating an instance.
+Planning: compare_compute_costs compares billed GPU cost for explicit candidates and duration; it is not a benchmark or creation approval. Check existing list_instances before renting: multiple approved commands can use the same running rental within its existing budget, time and idle limits. Separate run_job calls each provision and release independently; prepare_job_rerun does not reuse a live GPU. Never extend limits or keep idle GPUs merely to consume prepaid time.
+Server batches: prepare_job_batch also prepares the exact manifest for run_server_job_batch. The new tool atomically enqueues on the server, persists across client/server restarts, and requires an aggregate cap and individually approved billing. Use get_server_job_batch/cancel_server_job_batch; never substitute client partial submission when unavailable. No automatic failed-command retries.
+Legacy client batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
+Shared allocation: prepare_task_pipeline prepares 1–8 reviewed sequential commands as a single Job draft, or for an approved existing rental. It creates nothing. Independent run_job calls do not share a GPU. Pipeline summary persistence is explicit and does not save arbitrary results or authorize storage charges.
 Task recipes: list_task_templates and prepare_task_template return local read-only drafts, never a paid submission. Check prerequisites, quote and obtain explicit approval before run_job. Prefer local CPU processing when a GPU is unnecessary.
 Workflow: get_account and list_gpus -> estimate_cost -> show the quote to the user and get an explicit yes -> create_instance -> get_status until running -> upload -> run_command (background for long jobs) -> tail_logs -> download results -> stop_instance -> report the actual cost.
 Rules: never rent without the user's yes on a quote; always set a budget and time limit (the platform shuts the instance down when either is hit); download results before stop_instance because destroying an instance erases its disk; never change passwords, SSH config, the firewall or the platform's monitoring agent on the instance; if anything fails, download what exists and stop the instance rather than leaving it running.
@@ -69,8 +80,16 @@ Jobs: for a batch task (one command that writes its results somewhere), run_job 
 No API key yet? connect_account gives the user a link to approve this assistant with a spending limit; then finish_connect stores the key on this computer.
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
-const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
+// Bound collection work before any tool schema validation or handler execution.
+// Includes nested array entries and object members (not string bytes).
+const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10000 });
+useStrictToolInputs(server);
+registerFundingTools(server,{api,wrap,ok,readOnly:cfg.readOnly});
+registerAgentReadinessTools(server,{api,wrap,ok});
+registerRegionalOfferTools(server,{api,wrap,ok});
 registerTaskTemplateTools(server, {wrap, ok});
+registerComputePlanningTools(server,{api,wrap,ok});
+registerTaskPipelineTools(server,{cfg,wrap,ok});
 registerBatchTools(server,{api,cfg,wrap,ok});
 registerStorageTools(server, { api, wrap, ok, fail, readOnly: cfg.readOnly, expandHome });
 registerJobResultTools(server, { api, wrap, ok, readOnly: cfg.readOnly });
@@ -94,7 +113,7 @@ function wrap(fn) {
       if (err instanceof ApiError) {
         let hint = "";
         if (err.status === 401) hint = " Check CLOUDGPU_API_KEY (create one at https://cloudgpu.app/api).";
-        if (err.status === 402) hint = " Top up at https://cloudgpu.app/billing.";
+        if (err.status === 402) hint = " Call request_top_up to give the owner a payment link, then wait_for_funds. Never submit or repeat a paid task before approval.";
         return fail(`CloudGPU API error ${err.status} ${err.code}: ${err.message}${hint}`);
       }
       return fail(`Error: ${err && err.message ? err.message : String(err)}`);
@@ -168,7 +187,7 @@ server.registerTool(
   {
     title: "List GPUs",
     description:
-      "GPU models you can rent now, with VRAM, live price per GPU-hour in USD and availability (ok / low / none). Prices are live; never assume them.",
+      "GPU catalog with per-card VRAM, live starting price in USD, availability, and native configurations (GPU count, CPU, RAM, disks, region, interconnect and whole-instance price) when provided. Unavailable models remain discoverable. Request an exact quote before renting.",
     inputSchema: {
       min_vram_gb: z.number().optional().describe("Only GPUs with at least this much VRAM per card"),
       gpu_model: z.string().optional().describe("Filter by name, e.g. 4090, A100, H20"),
@@ -189,8 +208,10 @@ server.registerTool(
         usd_per_gpu_hour: r.hourly_usd,
         available: r.available,
         min_gpu_count: r.min_gpu_count,
+        inventory_count_exact: r.inventory_count_exact ?? null,
+        configurations: r.configurations ?? [],
       })),
-      note: "Billed per minute. 'available' is live and can change before you rent.",
+      note: "usd_per_gpu_hour is a starting per-card rate; configurations[].hourlyPrice is the total for that single-host GPU count, not a per-card rate. Configuration availability is not a fleet count or reservation. Billing periods vary by allocated source; call estimate_cost for the selected count and current minimum charge, billing increment and exact total. Availability can change before you rent. Configuration fields are absent when the source has not supplied verified metadata.",
     });
   }),
 );
@@ -214,6 +235,7 @@ server.registerTool(
     description:
       "Live price and estimated cost for a GPU, plus your balance after it. Returns a quote_id that create_instance needs. Show the quote to the user and get an explicit yes before renting.",
     inputSchema: {
+      continent: z.enum(CONTINENTS).optional().describe("Hard continent constraint, from list_rental_regions"),
       gpu_model: z.string().describe("GPU model exactly as list_gpus returns it"),
       gpu_count: z.number().int().min(1).max(8).default(1),
       hours: z.number().positive().describe("Expected run time in hours"),
@@ -221,7 +243,7 @@ server.registerTool(
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  wrap(async ({ gpu_model, gpu_count = 1, hours, template }) => {
+  wrap(async ({ gpu_model, gpu_count = 1, hours, template, continent }) => {
     const [offers, account] = await Promise.all([api.offers(), api.account().catch(() => null)]);
     const offer = offers.find((o) => String(o.gpu_model).toLowerCase() === gpu_model.toLowerCase());
     if (!offer) {
@@ -230,24 +252,30 @@ server.registerTool(
     if (gpu_count < (offer.min_gpu_count || 1)) {
       return fail(`${offer.gpu_model} is rented in groups of at least ${offer.min_gpu_count} GPUs.`);
     }
-    const hourly = round2(Number(offer.hourly_usd) * gpu_count);
-    const estimate = round2(hourly * hours);
+    const billing = await api.rentalBillingQuote({gpuModel:offer.gpu_model,gpuCount:gpu_count,...(continent?{continent}:{}),...(template?{templateId:template}:{})});
+    if(continent&&billing.continent!==continent)return fail("The billing quote did not bind the requested continent. No rental was started.");
+    const {hourly,increment,estimate}=rentalBilling(billing,hours);
     const balance = account ? Number(account.balance_usd) : null;
     const warnings = [];
     if (offer.available === "none") warnings.push("This GPU is out of stock right now; renting will likely fail. Pick another.");
     if (offer.available === "low") warnings.push("Only a few of these are free; renting may fail.");
     if (balance != null && balance < estimate * 1.1) {
       warnings.push(
-        `Balance $${balance} does not cover the estimate plus a 10% buffer. When the balance runs out the instance is destroyed and its disk erased. Top up at https://cloudgpu.app/billing.`,
+        `Balance $${balance} does not cover the estimate plus a 10% buffer. When the balance runs out the instance is destroyed and its disk erased. Call request_top_up and wait_for_funds; obtain approval before continuing.`,
       );
     }
-    const quote_id = quotes.put({ gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate });
+    const quote_id = quotes.put({ continent, gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate, billingQuoteId:billing.billingQuoteId, billingExpiresAt:billing.expiresAt, minimumChargeUsd:Number(billing.minimumChargeUsd), billingIncrementSeconds:increment });
     return ok({
       quote_id,
+      continent:continent||null,
       gpu_model: offer.gpu_model,
       gpu_count,
       template: template || null,
       usd_per_hour: hourly,
+      billing_increment_seconds:increment,
+      minimum_charge_usd:Number(billing.minimumChargeUsd),
+      preauthorized_usd:Number(billing.preauthorizedUsd),
+      billing_description:increment===3600?"Billing starts at resource allocation. Minimum one hour; each started hour is charged in full. Unused time within a charged hour is not refunded on voluntary stop.":"Billed per minute, one-minute minimum; unused prepaid minutes are refunded on destroy.",
       hours,
       estimated_cost_usd: estimate,
       balance_usd: balance,
@@ -282,7 +310,7 @@ server.registerTool(
 
 // ── connect (get a key with a budget, approved in the browser) ──────────────
 
-let pendingConnect = null;
+let pendingConnect = loadPendingConnect(cfg.baseUrl);
 
 server.registerTool(
   "connect_account",
@@ -301,8 +329,11 @@ server.registerTool(
   },
   wrap(async ({ agent_name, spend_limit_usd, max_concurrent = 1, expires_in_days = 30 }) => {
     const r = await api.connectStart({ agent_name, spend_limit_usd, max_concurrent, expires_in_days });
-    pendingConnect = { device_code: r.device_code, until: Date.now() + Number(r.expires_in || 600) * 1000, interval: Number(r.interval || 5) };
+    pendingConnect = { device_code: r.device_code, until: Date.now() + Number(r.expires_in || 1800) * 1000, interval: Number(r.interval || 5) };
+    savePendingConnect({...pendingConnect,base_url:cfg.baseUrl});
     return ok({
+      google_link: r.google_link || r.verification_uri_complete,
+      email_link: r.verification_uri_complete+"&provider=email",
       link: r.verification_uri_complete,
       code: r.user_code,
       expires_in_seconds: r.expires_in,
@@ -338,7 +369,7 @@ server.registerTool(
         });
         cfg.apiKey = cred.api_key;
         api.apiKey = cred.api_key;
-        pendingConnect = null;
+        pendingConnect = null;clearPendingConnect();
         return ok({
           connected: true,
           agent_name: cred.agent_name,
@@ -356,7 +387,7 @@ server.registerTool(
         if (err instanceof ApiError && err.code === "authorization_pending") {
           return fail("Not approved yet. Ask the user to open the link and approve, then call finish_connect again.");
         }
-        if (err instanceof ApiError && (err.code === "access_denied" || err.code === "expired_token")) pendingConnect = null;
+        if (err instanceof ApiError && (err.code === "access_denied" || err.code === "expired_token")){pendingConnect = null;clearPendingConnect();}
         throw err;
       }
     }
@@ -464,15 +495,20 @@ if (!cfg.readOnly) {
       if (idle_minutes > 0 && idle_minutes < 10) return fail("idle_minutes must be 0 (off) or at least 10.");
       const { quote, error } = quotes.take(quote_id);
       if (error) return fail(error);
+      if(!quote.billingQuoteId || quote.billingExpiresAt<=Date.now())return fail("Billing quote expired. Request estimate_cost again and ask the user to approve it.");
+      if(max_spend_usd<quote.minimumChargeUsd)return fail("Budget is below the minimum charge shown in the approved quote.");
       const account = await api.account();
       const balance = Number(account.balance_usd);
       const needed = round2(Math.min(max_spend_usd, quote.estimate) * 1.1);
       if (balance < needed) {
         return fail(
-          `Not rented: balance $${balance} is below $${needed} (the estimate or budget plus 10%). If the balance runs out the instance is destroyed and its disk erased. Top up at https://cloudgpu.app/billing.`,
+          `Not rented: balance $${balance} is below $${needed} (the estimate or budget plus 10%). If the balance runs out the instance is destroyed and its disk erased. Call request_top_up and wait_for_funds; obtain approval before continuing.`,
         );
       }
       const body = {
+        ...(quote.continent?{continent:quote.continent}:{}),
+        billing_quote_id:quote.billingQuoteId,
+        billing_accepted:true,
         gpu_model: quote.gpu_model,
         gpu_count: quote.gpu_count,
         max_minutes: Math.ceil(max_hours * 60),
@@ -497,7 +533,7 @@ if (!cfg.readOnly) {
   },wrap(async (input)=>ok(await resolveModelReference(input))));
   server.registerTool("prepare_model_deployment", {
     title:"Prepare models and a ComfyUI workflow",description:"Preparation only; no GPU is started. Create a reviewed setup script for the existing ComfyUI template. Downloads go from the public model host directly to the rented GPU, never through CloudGPU storage. Use model names as categories (checkpoints, loras, vae, diffusion_models, text_encoders, clip, controlnet, upscale_models). Does not install custom nodes, execute workflows, accept licenses for the user, or promise compatibility. Pass the setup_script only after explicit approval to the existing deployment flow.",
-    inputSchema:{model_references:z.array(z.record(z.unknown())).min(1).max(4),workflow:z.record(z.unknown()).optional()},
+    inputSchema:{model_references:z.array(z.record(z.string(),z.unknown())).min(1).max(4),workflow:z.record(z.string(),z.unknown()).optional()},
     annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
   },wrap(async (input)=>ok(await api.prepareModelDeployment(input))));
   server.registerTool("prepare_job_rerun", {
@@ -517,7 +553,7 @@ if (!cfg.readOnly) {
       inputSchema: jobInputShape(cfg),
       annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
     },
-    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, outputs, quote_id, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
+    wrap(async ({ command, gpu_model, template, gpu_count = 1, disk_gb, workspace_version_id, model_references, outputs, quote_id, billing_quote_id, billing_accepted, max_spend_usd, max_hours, user_confirmed, idempotency_key }) => {
       if (user_confirmed !== true) {
         return fail("Not started: tell the user the GPU, budget and time limit, wait for an explicit yes, then call again with user_confirmed=true.");
       }
@@ -539,6 +575,7 @@ if (!cfg.readOnly) {
       if (outputs) body.outputs = outputs;
       if (model_references?.length) body.model_references = model_references;
       if (quote_id) body.quote_id = quote_id;
+      if (billing_quote_id) {if(billing_accepted!==true)return fail("Not started: accept the source-specific minimum charge and billing period first.");body.billing_quote_id=billing_quote_id;body.billing_accepted=true;}
       const job = await api.createJob(body, key);
       return ok({
         ...job,

@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {z} from 'zod';
+import {registerAgentReadinessTools} from '../src/agent-readiness.js';
+function fixture(){const tools=new Map(),calls=[];registerAgentReadinessTools({registerTool:(name,s,f)=>tools.set(name,{s,f})},{api:{request:async(...args)=>{calls.push(args);return{read_only:true};}},wrap:f=>f,ok:x=>x});return{tools,calls};}
+test('readiness always omits authentication and makes no paid request',async()=>{const{tools,calls}=fixture();assert.equal((await tools.get('get_agent_readiness').f({})).read_only,true);assert.deepEqual(calls,[['GET','/v1/public/agent-self-check',undefined,{noAuth:true}]]);});
+test('task-fit forwards output bytes and platform requirements anonymously',async()=>{const{tools,calls}=fixture(),tool=tools.get('assess_task_fit');const input=z.object(tool.s.inputSchema).parse({task_type:'comfyui_video',expected_output_bytes:16777216,requires_kernel_control:true});await tool.f(input);assert.equal(calls.length,1);assert.equal(calls[0][1],'/v1/public/task-fit');assert.equal(calls[0][2].expected_output_bytes,16777216);assert.equal(calls[0][2].requires_kernel_control,true);assert.equal(calls[0][2].needs_persistent_outputs,true);assert.deepEqual(calls[0][3],{noAuth:true});});
+test('invalid output sizes fail before network access',()=>{const{tools,calls}=fixture(),schema=z.object(tools.get('assess_task_fit').s.inputSchema);for(const value of [-1,1.5,'100',Infinity,Number.MAX_SAFE_INTEGER+1])assert.equal(schema.safeParse({task_type:'comfyui_video',expected_output_bytes:value}).success,false);assert.equal(calls.length,0);});
