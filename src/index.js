@@ -42,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.5";
+const VERSION = "0.16.6";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -80,7 +80,9 @@ Jobs: for a batch task (one command that writes its results somewhere), run_job 
 No API key yet? connect_account gives the user a link to approve this assistant with a spending limit; then finish_connect stores the key on this computer.
 The same API key also works for the OpenAI-compatible model API at ${cfg.baseUrl}/v1 (see list_models).`;
 
-const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS });
+// Bound collection work before any tool schema validation or handler execution.
+// Includes nested array entries and object members (not string bytes).
+const server = new McpServer({ name: "cloudgpu", version: VERSION }, { instructions: INSTRUCTIONS, maxToolInputElements: 10000 });
 useStrictToolInputs(server);
 registerFundingTools(server,{api,wrap,ok,readOnly:cfg.readOnly});
 registerAgentReadinessTools(server,{api,wrap,ok});
@@ -531,7 +533,7 @@ if (!cfg.readOnly) {
   },wrap(async (input)=>ok(await resolveModelReference(input))));
   server.registerTool("prepare_model_deployment", {
     title:"Prepare models and a ComfyUI workflow",description:"Preparation only; no GPU is started. Create a reviewed setup script for the existing ComfyUI template. Downloads go from the public model host directly to the rented GPU, never through CloudGPU storage. Use model names as categories (checkpoints, loras, vae, diffusion_models, text_encoders, clip, controlnet, upscale_models). Does not install custom nodes, execute workflows, accept licenses for the user, or promise compatibility. Pass the setup_script only after explicit approval to the existing deployment flow.",
-    inputSchema:{model_references:z.array(z.record(z.unknown())).min(1).max(4),workflow:z.record(z.unknown()).optional()},
+    inputSchema:{model_references:z.array(z.record(z.string(),z.unknown())).min(1).max(4),workflow:z.record(z.string(),z.unknown()).optional()},
     annotations:{readOnlyHint:true,destructiveHint:false,idempotentHint:true,openWorldHint:false},
   },wrap(async (input)=>ok(await api.prepareModelDeployment(input))));
   server.registerTool("prepare_job_rerun", {

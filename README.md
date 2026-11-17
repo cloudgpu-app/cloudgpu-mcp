@@ -179,6 +179,8 @@ The server also provides a `train_on_cloudgpu` prompt.
 
 ## Guardrails
 
+- **Bounded local MCP inputs.** A tool call may contain at most 10,000 combined array entries and object members, including nested values. Larger calls are rejected before tool-schema validation or API/SSH handlers. This includes inline ComfyUI workflows; simplify oversized workflows rather than splitting a paid operation or silently dropping fields. The stdio transport also retains its 10 MiB buffered-input limit. These are local MCP limits, not a claim about the remote service.
+
 - **A quote first.** `create_instance` only takes a `quote_id` from `estimate_cost` and `user_confirmed=true`.
 - **Server-side limits.** Every instance is created with `max_spend_usd`, `max_hours` and an idle limit (60 minutes by default). CloudGPU's servers check them and destroy the instance when one is hit, even if your client has disconnected or your laptop is asleep.
 - **Your own ceiling.** `CLOUDGPU_MAX_SPEND_USD` and `CLOUDGPU_MAX_HOURS` cap what the agent may set.

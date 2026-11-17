@@ -8,13 +8,13 @@
     "url": "https://github.com/cloudgpu-app/cloudgpu-mcp",
     "source": "github"
   },
-  "version": "0.16.5",
+  "version": "0.16.6",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "cloudgpu-mcp",
-      "version": "0.16.5",
+      "version": "0.16.6",
       "runtimeHint": "npx",
       "transport": {
         "type": "stdio"
