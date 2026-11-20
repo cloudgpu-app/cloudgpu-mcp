@@ -42,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.6";
+const VERSION = "0.16.7";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -239,11 +239,12 @@ server.registerTool(
       gpu_model: z.string().describe("GPU model exactly as list_gpus returns it"),
       gpu_count: z.number().int().min(1).max(8).default(1),
       hours: z.number().positive().describe("Expected run time in hours"),
+      workspace_restore_required: z.boolean().optional().describe("Reserve a rental for restoring a saved Workspace. Excludes suppliers with known impaired restore routes."),
       template: z.string().optional().describe("Template id from list_templates; omit for a plain GPU with Python and CUDA"),
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  wrap(async ({ gpu_model, gpu_count = 1, hours, template, continent }) => {
+  wrap(async ({ gpu_model, gpu_count = 1, hours, template, continent, workspace_restore_required }) => {
     const [offers, account] = await Promise.all([api.offers(), api.account().catch(() => null)]);
     const offer = offers.find((o) => String(o.gpu_model).toLowerCase() === gpu_model.toLowerCase());
     if (!offer) {
@@ -252,7 +253,10 @@ server.registerTool(
     if (gpu_count < (offer.min_gpu_count || 1)) {
       return fail(`${offer.gpu_model} is rented in groups of at least ${offer.min_gpu_count} GPUs.`);
     }
-    const billing = await api.rentalBillingQuote({gpuModel:offer.gpu_model,gpuCount:gpu_count,...(continent?{continent}:{}),...(template?{templateId:template}:{})});
+    const billing = await api.rentalBillingQuote({gpuModel:offer.gpu_model,gpuCount:gpu_count,...(continent?{continent}:{}),...(template?{templateId:template}:{}),...(workspace_restore_required?{workspaceRestoreRequired:true}:{})});
+    if (workspace_restore_required && billing.workspaceRestoreRequired !== true) {
+      return fail("workspace_route_unavailable: Select another configuration or region before renting for this Workspace.");
+    }
     if(continent&&billing.continent!==continent)return fail("The billing quote did not bind the requested continent. No rental was started.");
     const {hourly,increment,estimate}=rentalBilling(billing,hours);
     const balance = account ? Number(account.balance_usd) : null;
@@ -267,6 +271,7 @@ server.registerTool(
     const quote_id = quotes.put({ continent, gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate, billingQuoteId:billing.billingQuoteId, billingExpiresAt:billing.expiresAt, minimumChargeUsd:Number(billing.minimumChargeUsd), billingIncrementSeconds:increment });
     return ok({
       quote_id,
+      ...(workspace_restore_required?{workspace_restore_required:true}:{}),
       continent:continent||null,
       gpu_model: offer.gpu_model,
       gpu_count,
