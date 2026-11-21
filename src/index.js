@@ -42,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.7";
+const VERSION = "0.16.8";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -162,13 +162,36 @@ server.registerTool("get_compute_catalog", {
   inputSchema: {}, annotations: { readOnlyHint: true, openWorldHint: true },
 }, wrap(async () => ok(await api.catalog())));
 server.registerTool("quote_compute", {
-  title: "Server-side compute quote", description: "Five-minute server quote: separates estimated task cost from required starting balance and marks supports_jobs. No GPU is started. Pass its quote_id to run_job.",
+  title: "Server-side compute quote", description: "Compare minute and whole-hour Job estimates, minimum charges and starting balances. No GPU is started. Use job_billing_options to compare cost for your duration, then call quote_job_billing for the selected period. The legacy quote_id still supports minute-only Jobs.",
   inputSchema: { min_vram_gb: z.number().int().min(0).default(0), gpu_model: z.string().optional(), gpu_count: z.number().int().min(1).max(8).default(1),
     template: z.string().optional(), disk_gb: z.number().int().optional(), estimated_duration_seconds: z.number().int().positive(), max_budget_usd: z.number().positive() },
   annotations: { readOnlyHint: true, openWorldHint: true },
 }, wrap(async ({ estimated_duration_seconds, max_budget_usd, ...requirements }) => {
-  const q = await api.quote({ requirements, estimated_duration_seconds, max_budget_usd });
+  const q = await api.quote({ requirements, estimated_duration_seconds, max_budget_usd, include_job_billing_options: true });
   return ok({ ...q, quote_id: q.id });
+}));
+
+server.registerTool("quote_job_billing", {
+  title: "Quote the selected Job billing period",
+  description: "Read-only. Use the exact Job configuration and selected billing period from quote_compute. Show the returned billing period, minimum charge and hourly total. Obtain explicit approval before sending billingQuoteId as billing_quote_id with billing_accepted=true to run_job.",
+  inputSchema: {
+    gpu_model: z.string().min(1), gpu_count: z.number().int().min(1).max(8).default(1),
+    template: z.string().optional(), disk_gb: z.number().int().optional(),
+    billing_increment_seconds: z.union([z.literal(60), z.literal(3600)]),
+    workspace_restore_required: z.boolean().optional(),
+  },
+  annotations: { readOnlyHint: true, openWorldHint: true },
+}, wrap(async ({ gpu_model, gpu_count, template, disk_gb, billing_increment_seconds, workspace_restore_required }) => {
+  const quote = await api.rentalBillingQuote({
+    gpuModel: gpu_model, gpuCount: gpu_count, ...(template ? { templateId: template } : {}),
+    ...(disk_gb ? { diskGb: disk_gb } : {}), ...(workspace_restore_required ? { workspaceRestoreRequired: true } : {}),
+    jobBillingQuote: true, billingIncrementSeconds: billing_increment_seconds,
+  });
+  if (!quote?.billingQuoteId || quote.incrementSeconds !== billing_increment_seconds
+      || (workspace_restore_required && quote.workspaceRestoreRequired !== true)) {
+    return fail("The requested Job billing period could not be verified. No Job was started.");
+  }
+  return ok({ ...quote, billing_quote_id: quote.billingQuoteId });
 }));
 
 server.registerTool(
