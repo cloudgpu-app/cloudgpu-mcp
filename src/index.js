@@ -42,7 +42,7 @@ import {
   shq,
 } from "./guards.js";
 
-const VERSION = "0.16.8";
+const VERSION = "0.16.9";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const RULES = fs.readFileSync(path.join(HERE, "..", "rules", "cloudgpu.md"), "utf8");
 
@@ -68,7 +68,7 @@ const quotes = new Quotes();
 const session = new Map();
 
 const INSTRUCTIONS = `CloudGPU (cloudgpu.app) provides GPU compute scheduling for AI agents from a prepaid balance. Billing is source-specific: per-minute or minimum one hour with each started hour charged in full. Never infer the period from an hourly price label.
-Regional discovery: list_regional_offers reads native observations with separate stock/price ages and explicit unknowns. Supply the owner country explicitly, never the Agent egress IP. Native observations are planning only. For continent-constrained rentals, first call list_rental_regions and require enabled=true, then estimate_cost with the chosen continent. create_instance carries that approved constraint. Countries/datacenters and continent-constrained Jobs are not supported; never drop a hard constraint. Rental catalogue prices follow currently qualified supply; obtain a fresh billing quote before creating an instance.
+Regional discovery: list_regional_offers reads native observations with separate stock/price ages and explicit unknowns. Supply the owner country explicitly, never the Agent egress IP. Native observations are planning only. For continent-constrained rentals, first call list_rental_regions and require enabled=true, then estimate_cost with the chosen continent. create_instance carries that approved constraint. Countries/datacenters and continent-constrained Jobs are not supported; never drop a hard constraint. Rental catalogue prices are GPU-only starting rates. Obtain a fresh binding quote and show GPU charges, disk charges, hourly total and minimum before approval. If the approved configuration becomes unavailable, obtain a fresh quote and new approval.
 Planning: compare_compute_costs compares billed GPU cost for explicit candidates and duration; it is not a benchmark or creation approval. Check existing list_instances before renting: multiple approved commands can use the same running rental within its existing budget, time and idle limits. Separate run_job calls each provision and release independently; prepare_job_rerun does not reuse a live GPU. Never extend limits or keep idle GPUs merely to consume prepaid time.
 Server batches: prepare_job_batch also prepares the exact manifest for run_server_job_batch. The new tool atomically enqueues on the server, persists across client/server restarts, and requires an aggregate cap and individually approved billing. Use get_server_job_batch/cancel_server_job_batch; never substitute client partial submission when unavailable. No automatic failed-command retries.
 Legacy client batches: prepare_job_batch reviews up to eight individually quoted Jobs and their combined GPU budget. run_job_batch requires an exact approved plan hash; partial submission is possible. Retain the manifest and stable batch key to reconcile lost responses. No automatic execution retries; get_job_batch never proves independent supplier release. Storage charges are additional to GPU caps.
@@ -173,7 +173,7 @@ server.registerTool("quote_compute", {
 
 server.registerTool("quote_job_billing", {
   title: "Quote the selected Job billing period",
-  description: "Read-only. Use the exact Job configuration and selected billing period from quote_compute. Show the returned billing period, minimum charge and hourly total. Obtain explicit approval before sending billingQuoteId as billing_quote_id with billing_accepted=true to run_job.",
+  description: "Read-only. Use the exact Job configuration and selected billing period from quote_compute. Show the returned GPU subtotal, disk fee, hourly total, billing period and minimum charge. Obtain explicit approval before sending billingQuoteId as billing_quote_id with billing_accepted=true to run_job.",
   inputSchema: {
     gpu_model: z.string().min(1), gpu_count: z.number().int().min(1).max(8).default(1),
     template: z.string().optional(), disk_gb: z.number().int().optional(),
@@ -256,18 +256,19 @@ server.registerTool(
   {
     title: "Quote a rental",
     description:
-      "Live price and estimated cost for a GPU, plus your balance after it. Returns a quote_id that create_instance needs. Show the quote to the user and get an explicit yes before renting.",
+      "Live price and estimated cost for a GPU, plus your balance after it. Returns a quote_id that create_instance needs. Show the GPU subtotal, disk fee, hourly total and minimum charge before obtaining explicit approval.",
     inputSchema: {
       continent: z.enum(CONTINENTS).optional().describe("Hard continent constraint, from list_rental_regions"),
       gpu_model: z.string().describe("GPU model exactly as list_gpus returns it"),
       gpu_count: z.number().int().min(1).max(8).default(1),
+      disk_gb: z.union([z.literal(0),z.literal(100),z.literal(200),z.literal(500)]).optional().describe("Selected disk capacity in GB. Omit or use 0 for the standard disk."),
       hours: z.number().positive().describe("Expected run time in hours"),
       workspace_restore_required: z.boolean().optional().describe("Reserve a rental for restoring a saved Workspace. Excludes suppliers with known impaired restore routes."),
       template: z.string().optional().describe("Template id from list_templates; omit for a plain GPU with Python and CUDA"),
     },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
-  wrap(async ({ gpu_model, gpu_count = 1, hours, template, continent, workspace_restore_required }) => {
+  wrap(async ({ gpu_model, gpu_count = 1, hours, template, continent, workspace_restore_required, disk_gb }) => {
     const [offers, account] = await Promise.all([api.offers(), api.account().catch(() => null)]);
     const offer = offers.find((o) => String(o.gpu_model).toLowerCase() === gpu_model.toLowerCase());
     if (!offer) {
@@ -276,12 +277,13 @@ server.registerTool(
     if (gpu_count < (offer.min_gpu_count || 1)) {
       return fail(`${offer.gpu_model} is rented in groups of at least ${offer.min_gpu_count} GPUs.`);
     }
-    const billing = await api.rentalBillingQuote({gpuModel:offer.gpu_model,gpuCount:gpu_count,...(continent?{continent}:{}),...(template?{templateId:template}:{}),...(workspace_restore_required?{workspaceRestoreRequired:true}:{})});
+    const billing = await api.rentalBillingQuote({gpuModel:offer.gpu_model,gpuCount:gpu_count,...(disk_gb?{diskGb:disk_gb}:{}),...(continent?{continent}:{}),...(template?{templateId:template}:{}),...(workspace_restore_required?{workspaceRestoreRequired:true}:{})});
     if (workspace_restore_required && billing.workspaceRestoreRequired !== true) {
       return fail("workspace_route_unavailable: Select another configuration or region before renting for this Workspace.");
     }
     if(continent&&billing.continent!==continent)return fail("The billing quote did not bind the requested continent. No rental was started.");
-    const {hourly,increment,estimate}=rentalBilling(billing,hours);
+    const {hourly,increment,estimate,gpuHourly,diskHourly,diskGb}=rentalBilling(billing,hours);
+    if (diskGb != null && diskGb !== (disk_gb || 0)) return fail("The billing quote did not bind the selected disk. No rental was started.");
     const balance = account ? Number(account.balance_usd) : null;
     const warnings = [];
     if (offer.available === "none") warnings.push("This GPU is out of stock right now; renting will likely fail. Pick another.");
@@ -291,7 +293,7 @@ server.registerTool(
         `Balance $${balance} does not cover the estimate plus a 10% buffer. When the balance runs out the instance is destroyed and its disk erased. Call request_top_up and wait_for_funds; obtain approval before continuing.`,
       );
     }
-    const quote_id = quotes.put({ continent, gpu_model: offer.gpu_model, gpu_count, template, hourly, hours, estimate, billingQuoteId:billing.billingQuoteId, billingExpiresAt:billing.expiresAt, minimumChargeUsd:Number(billing.minimumChargeUsd), billingIncrementSeconds:increment });
+    const quote_id = quotes.put({ continent, gpu_model: offer.gpu_model, gpu_count, disk_gb, template, hourly, hours, estimate, billingQuoteId:billing.billingQuoteId, billingExpiresAt:billing.expiresAt, minimumChargeUsd:Number(billing.minimumChargeUsd), billingIncrementSeconds:increment });
     return ok({
       quote_id,
       ...(workspace_restore_required?{workspace_restore_required:true}:{}),
@@ -299,6 +301,9 @@ server.registerTool(
       gpu_model: offer.gpu_model,
       gpu_count,
       template: template || null,
+      disk_gb: disk_gb || 0,
+      ...(gpuHourly != null ? { gpu_hourly_usd: gpuHourly, disk_hourly_usd: diskHourly } : {}),
+      hourly_total_usd: hourly,
       usd_per_hour: hourly,
       billing_increment_seconds:increment,
       minimum_charge_usd:Number(billing.minimumChargeUsd),
@@ -544,6 +549,7 @@ if (!cfg.readOnly) {
         idle_minutes,
       };
       if (quote.template) body.template = quote.template;
+      if (quote.disk_gb) body.disk_gb = quote.disk_gb;
       if (setup_script && setup_script.trim()) body.setup_script = setup_script;
       const inst = await api.create(body);
       track(inst.id);
