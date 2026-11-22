@@ -10,3 +10,11 @@ test('same hourly rate remains minute billing for legacy sources and hourly only
 test('expiry, wrong increments and inconsistent minimums fail before a create request can be prepared',()=>{
  for(const q of [{...quote(),expiresAt:1000},{...quote(),incrementSeconds:0},{...quote(),currency:'CNY'},{...quote(),minimumChargeUsd:.39},{...quote(),hourlyTotalUsd:'NaN'},{...quote(),billingQuoteId:''}])assert.throws(()=>rentalBilling(q,.25,1000));
 });
+
+test('rental billing carries the approved GPU and disk split', () => {
+ const withDisk = {...quote(), hourlyTotalUsd:.79, minimumChargeUsd:.79/60,
+  preauthorizedUsd:.79, gpuHourlyUsd:.76, diskHourlyUsd:.03, diskGb:100};
+ const billing = rentalBilling(withDisk, .25, 1000);
+ assert.deepEqual([billing.gpuHourly, billing.diskHourly, billing.diskGb], [.76,.03,100]);
+ assert.throws(() => rentalBilling({...withDisk,diskHourlyUsd:.10},.25,1000));
+});
